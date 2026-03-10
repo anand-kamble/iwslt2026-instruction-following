@@ -1,0 +1,31 @@
+# Base configuration — shared across all tasks
+model:
+  sfm: facebook/seamless-m4t-v2-large
+  llm: unsloth/Qwen3-4B-Instruct-2507
+
+hub:
+  # Update these with your HuggingFace org/repo
+  organization: YOUR_HF_ORG
+  push_to_hub: false
+
+training:
+  seed: 42
+  bf16: true
+  gradient_checkpointing: true
+  load_in_4bit: true
+  max_seq_length: 4096
+  lora_r: 32
+  lora_alpha: 32
+  gradient_accumulation_steps: 4
+  optim: adamw_8bit
+  lr_scheduler_type: cosine
+  warmup_steps: 100
+  logging_steps: 50
+  save_steps: 500
+  eval_steps: 500
+  downsample_factor: 1
+
+paths:
+  data_dir: ./data
+  output_dir: ./outputs
+  checkpoint_dir: ./checkpoints

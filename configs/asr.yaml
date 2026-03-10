@@ -1,0 +1,18 @@
+# ASR task configuration
+defaults:
+  - base
+
+task: asr
+language: en
+
+data:
+  train:
+    - europarlst
+    - covost2
+  eval:
+    - mcif
+
+training:
+  num_epochs: 3
+  per_device_train_batch_size: 2
+  learning_rate: 2e-5
