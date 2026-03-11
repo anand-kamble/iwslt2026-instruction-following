@@ -5,8 +5,8 @@ model:
 
 hub:
   # Update these with your HuggingFace org/repo
-  organization: YOUR_HF_ORG
-  push_to_hub: false
+  organization: anand-kamble
+  push_to_hub: true
 
 training:
   seed: 42
