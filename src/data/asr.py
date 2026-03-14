@@ -34,10 +34,14 @@ def load_covost2_asr(split: str = "train"):
 
 def load_asr_dataset(dataset_name: str, split: str = "train"):
     """Load an ASR dataset by name."""
+    if dataset_name == "gigast":
+        from src.data.gigast import load_gigast_asr
+        return load_gigast_asr(split)
+
     loaders = {
         "europarlst": load_europarlst_asr,
         "covost2": load_covost2_asr,
     }
     if dataset_name not in loaders:
-        raise ValueError(f"Unknown ASR dataset: {dataset_name}. Available: {list(loaders.keys())}")
+        raise ValueError(f"Unknown ASR dataset: {dataset_name}. Available: {list(loaders.keys()) + ['gigast']}")
     return loaders[dataset_name](split)

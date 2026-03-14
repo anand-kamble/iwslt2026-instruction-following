@@ -43,12 +43,16 @@ def load_covost2_s2tt(target_lang: str, split: str = "train"):
 
 def load_s2tt_dataset(dataset_name: str, target_lang: str, split: str = "train"):
     """Load a speech translation dataset by name and target language."""
+    if dataset_name == "gigast":
+        from src.data.gigast import load_gigast_s2tt
+        return load_gigast_s2tt(target_lang, split)
+
     loaders = {
         "europarlst": load_europarlst_s2tt,
         "covost2": load_covost2_s2tt,
     }
     if dataset_name not in loaders:
         raise ValueError(
-            f"Unknown S2TT dataset: {dataset_name}. Available: {list(loaders.keys())}"
+            f"Unknown S2TT dataset: {dataset_name}. Available: {list(loaders.keys()) + ['gigast']}"
         )
     return loaders[dataset_name](target_lang, split)

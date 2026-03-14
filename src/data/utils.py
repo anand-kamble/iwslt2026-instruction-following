@@ -53,6 +53,9 @@ TASK_PROMPTS = {
     },
     "achap": {
         "en": "Identify the chapters and their titles in the English content.",
+        "de": "Identifiziere die Kapitel und ihre Titel im englischen Inhalt.",
+        "it": "Identifica i capitoli e i loro titoli nel contenuto inglese.",
+        "zh": "识别英文内容中的章节及其标题。",
     },
 }
 
@@ -66,6 +69,20 @@ UNANSWERABLE = {
 
 # Speech placeholder token
 SPEECH_PLACEHOLDER = "<|speech|>"
+
+
+def format_text_only_messages(instruction: str, response: str | None = None) -> list[dict]:
+    """Format instruction and response as ChatML messages WITHOUT speech placeholder.
+
+    Used for Stage 2 text-only LoRA training.
+    """
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant that follows instructions."},
+        {"role": "user", "content": instruction},
+    ]
+    if response is not None:
+        messages.append({"role": "assistant", "content": response})
+    return messages
 
 
 def format_chat_messages(instruction: str, response: str | None = None) -> list[dict]:

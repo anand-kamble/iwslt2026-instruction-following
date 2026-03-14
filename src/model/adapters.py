@@ -58,3 +58,61 @@ class SpeechProjector(nn.Module):
             x = x.transpose(1, 2)
 
         return self.proj(x)
+
+
+class TransformerProjector(nn.Module):
+    """Projects speech encoder outputs into the LLM's embedding space.
+
+    Architecture: Conv1d downsample -> Transformer encoder -> Linear projection.
+    Based on NAVER IWSLT 2025 constrained system projector (~39M params).
+    """
+
+    def __init__(
+        self,
+        speech_dim: int = 1024,
+        llm_dim: int = 2560,
+        downsample_factor: int = 3,
+        num_layers: int = 4,
+        num_heads: int = 8,
+        ffn_dim: int = 2048,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.downsample_factor = downsample_factor
+
+        if downsample_factor > 1:
+            self.downsample = nn.Conv1d(
+                speech_dim, speech_dim,
+                kernel_size=downsample_factor, stride=downsample_factor,
+            )
+        else:
+            self.downsample = None
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=speech_dim,
+            nhead=num_heads,
+            dim_feedforward=ffn_dim,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.output_proj = nn.Linear(speech_dim, llm_dim)
+
+    def forward(self, speech_features: torch.Tensor) -> torch.Tensor:
+        """Project speech features to LLM embedding space.
+
+        Args:
+            speech_features: (batch, seq_len, speech_dim)
+        Returns:
+            (batch, seq_len // downsample_factor, llm_dim)
+        """
+        x = speech_features
+
+        if self.downsample is not None:
+            x = x.transpose(1, 2)
+            x = self.downsample(x)
+            x = x.transpose(1, 2)
+
+        x = self.transformer(x)
+        return self.output_proj(x)

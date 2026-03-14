@@ -23,6 +23,17 @@ class SpeechLLM(nn.Module):
         self.llm = llm  # LoRA trainable
         self.tokenizer = tokenizer
 
+    def _get_embed_tokens(self):
+        """Get the embedding layer, handling both PEFT-wrapped and vanilla models."""
+        # PEFT/Unsloth: llm.model.model.embed_tokens
+        # Vanilla: llm.model.embed_tokens
+        base = self.llm
+        if hasattr(base, "model") and hasattr(base.model, "model"):
+            return base.model.model.embed_tokens
+        elif hasattr(base, "model"):
+            return base.model.embed_tokens
+        raise AttributeError("Cannot find embed_tokens in LLM structure")
+
     @torch.no_grad()
     def encode_speech(self, input_features, attention_mask=None):
         """Extract speech features from audio using the frozen encoder.
@@ -68,7 +79,7 @@ class SpeechLLM(nn.Module):
         speech_embeds = self.projector(speech_features)  # (B, T', llm_dim)
 
         # 2. Get text embeddings from LLM
-        text_embeds = self.llm.model.model.embed_tokens(input_ids)  # (B, S, llm_dim)
+        text_embeds = self._get_embed_tokens()(input_ids)  # (B, S, llm_dim)
 
         # 3. Find speech placeholder positions and replace with speech embeddings
         inputs_embeds, new_attention_mask, new_labels = self._merge_speech_and_text(
@@ -167,7 +178,7 @@ class SpeechLLM(nn.Module):
         speech_features = self.encode_speech(input_features, input_features_attention_mask)
         speech_embeds = self.projector(speech_features)
 
-        text_embeds = self.llm.model.model.embed_tokens(input_ids)
+        text_embeds = self._get_embed_tokens()(input_ids)
 
         inputs_embeds, new_attention_mask, _ = self._merge_speech_and_text(
             speech_embeds, text_embeds, input_ids, attention_mask, labels=None

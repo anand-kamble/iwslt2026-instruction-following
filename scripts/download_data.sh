@@ -18,8 +18,15 @@ echo "TODO: Download EuroParlST"
 # CoVoST2
 echo "TODO: Download CoVoST2"
 
-# GigaST
-echo "TODO: Download GigaST"
+# GigaST (translations for GigaSpeech audio)
+# Audio: speechcolab/gigaspeech on HuggingFace (requires access request)
+# Translations: https://st-benchmark.github.io/resources/GigaST.html
+# Place translations in: $DATA_DIR/gigast/{de,zh}/train.tsv
+# TSV format: utterance_id<TAB>translation
+echo "GigaST: Download translations from https://st-benchmark.github.io/resources/GigaST.html"
+echo "  Place in: $DATA_DIR/gigast/{de,zh}/train.tsv"
+echo "  Audio loaded automatically from HuggingFace (speechcolab/gigaspeech)"
+mkdir -p "$DATA_DIR/gigast/de" "$DATA_DIR/gigast/zh"
 
 # LibriSQA
 echo "TODO: Download LibriSQA"

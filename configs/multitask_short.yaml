@@ -1,0 +1,38 @@
+# Multi-task config for SHORT track
+# Tasks: ASR, S2TT, SQA, Surprise (surprise handled via in-context learning)
+defaults:
+  - base
+
+task: multitask
+track: short
+
+tasks:
+  asr:
+    train:
+      - europarlst
+      - gigast
+  s2tt:
+    train:
+      - europarlst
+      - gigast
+    target_languages:
+      - de
+      - it
+      - zh
+  sqa:
+    train:
+      - librisqa
+    languages:
+      - en
+      - de
+      - it
+      - zh
+
+sampling:
+  temperature: 0.5
+
+training:
+  num_epochs: 3
+  per_device_train_batch_size: 2
+  learning_rate: 2e-5
+  max_seq_length: 4096

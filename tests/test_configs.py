@@ -39,6 +39,43 @@ def test_task_configs_have_required_fields():
         assert "train" in config["data"], f"{filename} missing 'data.train'"
 
 
+def test_multitask_configs_have_required_fields():
+    """Multitask configs must have tasks section with per-task data sources."""
+    for filename in ["multitask_short.yaml", "multitask_long.yaml"]:
+        config_path = CONFIGS_DIR / filename
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+        assert config["task"] == "multitask", f"{filename} task should be 'multitask'"
+        assert "tasks" in config, f"{filename} missing 'tasks'"
+        assert "track" in config, f"{filename} missing 'track'"
+        assert "sampling" in config, f"{filename} missing 'sampling'"
+        assert "temperature" in config["sampling"]
+
+        # Short track must have asr, s2tt, sqa
+        tasks = config["tasks"]
+        assert "asr" in tasks
+        assert "s2tt" in tasks
+        assert "sqa" in tasks
+
+
+def test_multitask_long_has_all_tasks():
+    """Long track config must include s2tsum and achap."""
+    with open(CONFIGS_DIR / "multitask_long.yaml") as f:
+        config = yaml.safe_load(f)
+    tasks = config["tasks"]
+    assert "s2tsum" in tasks
+    assert "achap" in tasks
+
+
+def test_gigast_in_asr_and_s2tt_configs():
+    """GigaST should be listed in ASR and S2TT train data; CoVoST2 removed."""
+    for filename in ["asr.yaml", "s2tt.yaml"]:
+        with open(CONFIGS_DIR / filename) as f:
+            config = yaml.safe_load(f)
+        assert "gigast" in config["data"]["train"], f"{filename} missing gigast"
+        assert "covost2" not in config["data"]["train"], f"{filename} should not have covost2 (removed from constrained setting)"
+
+
 def test_task_prompts_available():
     """All task prompts should be defined."""
     from src.data.utils import TASK_PROMPTS
@@ -55,6 +92,11 @@ def test_task_prompts_available():
     assert "de" in TASK_PROMPTS["s2tt"]
     assert "it" in TASK_PROMPTS["s2tt"]
     assert "zh" in TASK_PROMPTS["s2tt"]
+    # ACHAP has all target languages
+    assert "en" in TASK_PROMPTS["achap"]
+    assert "de" in TASK_PROMPTS["achap"]
+    assert "it" in TASK_PROMPTS["achap"]
+    assert "zh" in TASK_PROMPTS["achap"]
 
 
 def test_unanswerable_responses():
@@ -111,3 +153,50 @@ def test_config_loader():
     assert config["task"] == "asr"
     # Task-specific training overrides base
     assert "num_epochs" in config["training"]
+
+
+def test_stage_configs_parse():
+    """Stage configs should parse and have required fields."""
+    for filename, expected_stage in [
+        ("stage1_alignment.yaml", 1),
+        ("stage2_text_lora.yaml", 2),
+        ("stage3_multimodal.yaml", 3),
+    ]:
+        with open(CONFIGS_DIR / filename) as f:
+            config = yaml.safe_load(f)
+        assert config["stage"] == expected_stage
+
+
+def test_base_config_8bit():
+    """Base config should default to 8-bit quantization."""
+    with open(CONFIGS_DIR / "base.yaml") as f:
+        config = yaml.safe_load(f)
+    assert config["training"]["load_in_8bit"] is True
+    assert config["training"]["load_in_4bit"] is False
+    assert config["training"]["lora_r"] == 16
+    assert config["training"]["lora_alpha"] == 16
+
+
+def test_stage1_no_lora():
+    """Stage 1 must have no_lora=true."""
+    with open(CONFIGS_DIR / "stage1_alignment.yaml") as f:
+        config = yaml.safe_load(f)
+    assert config["training"]["no_lora"] is True
+
+
+def test_stage2_text_only():
+    """Stage 2 must be text-only."""
+    with open(CONFIGS_DIR / "stage2_text_lora.yaml") as f:
+        config = yaml.safe_load(f)
+    assert config["training"]["text_only"] is True
+
+
+def test_format_text_only_messages():
+    """Text-only messages should NOT contain speech placeholder."""
+    from src.data.utils import format_text_only_messages, SPEECH_PLACEHOLDER
+    messages = format_text_only_messages("Translate to German.", "Hallo Welt.")
+    assert len(messages) == 3
+    for m in messages:
+        assert SPEECH_PLACEHOLDER not in m["content"]
+    assert messages[1]["content"] == "Translate to German."
+    assert messages[2]["content"] == "Hallo Welt."

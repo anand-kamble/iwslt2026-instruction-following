@@ -8,7 +8,7 @@ language: en
 data:
   train:
     - europarlst
-    - covost2
+    - gigast
   eval:
     - mcif
 

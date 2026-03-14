@@ -1,16 +1,16 @@
 """Training entry point for IWSLT instruction-following model.
 
-Usage:
-    python src/train.py --config configs/asr.yaml
-    python src/train.py --config configs/asr.yaml --output_dir ./outputs/asr-v1
+Supports 3-stage training:
+    Stage 1: python src/train.py --config configs/stage1_alignment.yaml
+    Stage 2: python src/train.py --config configs/stage2_text_lora.yaml
+    Stage 3: python src/train.py --config configs/stage3_multimodal.yaml \
+             --stage1_checkpoint outputs/stage1_asr --stage2_checkpoint outputs/stage2_text_lora
 """
 
 import argparse
 import os
-from pathlib import Path
 
 import torch
-import yaml
 from transformers import TrainingArguments, Trainer
 
 from src.config import load_config
@@ -20,8 +20,11 @@ from src.data.collator import SpeechTextCollator
 
 
 def load_task_datasets(config: dict):
-    """Load training and eval datasets based on task config."""
+    """Load training datasets based on task config."""
     task = config["task"]
+
+    if task in ("multitask", "text_lora"):
+        return None
 
     if task == "asr":
         from src.data.asr import load_asr_dataset
@@ -51,7 +54,11 @@ def load_task_datasets(config: dict):
 
     elif task == "achap":
         from src.data.achap import load_achap_dataset
-        return [load_achap_dataset("train")]
+        languages = config.get("languages", ["en"])
+        train_datasets = []
+        for lang in languages:
+            train_datasets.append(load_achap_dataset("train", lang))
+        return train_datasets
 
     else:
         raise ValueError(f"Unknown task: {task}")
@@ -62,68 +69,172 @@ def main():
     parser.add_argument("--config", type=str, required=True, help="Path to task config YAML")
     parser.add_argument("--output_dir", type=str, default=None, help="Override output directory")
     parser.add_argument("--resume_from", type=str, default=None, help="Resume from checkpoint")
+    parser.add_argument("--stage1_checkpoint", type=str, default=None,
+                        help="Load projector weights from Stage 1")
+    parser.add_argument("--stage2_checkpoint", type=str, default=None,
+                        help="Load LoRA weights from Stage 2")
     args = parser.parse_args()
 
     config = load_config(args.config)
-    output_dir = args.output_dir or config.get("paths", {}).get("output_dir", "./outputs")
-    output_dir = os.path.join(output_dir, config["task"])
+    training_config = config.get("training", {})
+    text_only = training_config.get("text_only", False)
+    no_lora = training_config.get("no_lora", False)
 
-    print(f"Task: {config['task']}")
+    output_dir = args.output_dir or config.get("paths", {}).get("output_dir", "./outputs")
+    task_label = config["task"]
+    stage = config.get("stage", "")
+    if stage:
+        task_label = f"stage{stage}_{task_label}"
+    output_dir = os.path.join(output_dir, task_label)
+
+    print(f"Task: {config['task']} | Stage: {stage} | Text-only: {text_only} | No-LoRA: {no_lora}")
     print(f"Output: {output_dir}")
 
-    # 1. Load models
+    # ===== Stage 2: Text-only LoRA training (no audio) =====
+    if text_only:
+        print("=== Stage 2: Text-only LoRA training ===")
+        llm_config = config.get("model", {})
+        llm, tokenizer = load_llm_with_lora(
+            model_name=llm_config.get("llm", "unsloth/Qwen3-4B-Instruct-2507"),
+            max_seq_length=training_config.get("max_seq_length", 4096),
+            load_in_4bit=training_config.get("load_in_4bit", False),
+            load_in_8bit=training_config.get("load_in_8bit", True),
+            no_lora=False,
+            lora_r=training_config.get("lora_r", 16),
+            lora_alpha=training_config.get("lora_alpha", 16),
+        )
+
+        from src.data.text_only import load_text_only_datasets
+        from datasets import concatenate_datasets
+
+        train_datasets = load_text_only_datasets(config)
+        if not train_datasets:
+            raise RuntimeError("No text-only datasets loaded")
+        train_dataset = concatenate_datasets(train_datasets)
+        print(f"Text-only training samples: {len(train_dataset)}")
+
+        collator = SpeechTextCollator(
+            processor=None, tokenizer=tokenizer,
+            max_seq_length=training_config.get("max_seq_length", 4096),
+            text_only=True,
+        )
+
+        training_args = TrainingArguments(
+            output_dir=output_dir,
+            num_train_epochs=training_config.get("num_epochs", 2),
+            per_device_train_batch_size=training_config.get("per_device_train_batch_size", 8),
+            gradient_accumulation_steps=training_config.get("gradient_accumulation_steps", 1),
+            learning_rate=float(training_config.get("learning_rate", 3e-4)),
+            warmup_steps=training_config.get("warmup_steps", 100),
+            logging_steps=training_config.get("logging_steps", 50),
+            save_steps=training_config.get("save_steps", 500),
+            bf16=training_config.get("bf16", True),
+            optim=training_config.get("optim", "adamw_8bit"),
+            lr_scheduler_type=training_config.get("lr_scheduler_type", "cosine"),
+            seed=training_config.get("seed", 42),
+            report_to="none",
+            save_total_limit=3,
+            remove_unused_columns=False,
+        )
+
+        trainer = Trainer(
+            model=llm, args=training_args,
+            train_dataset=train_dataset, data_collator=collator,
+        )
+        trainer.train()
+
+        llm.save_pretrained(os.path.join(output_dir, "lora_adapters"))
+        tokenizer.save_pretrained(os.path.join(output_dir, "lora_adapters"))
+        print(f"Stage 2 LoRA saved to {output_dir}/lora_adapters")
+        return
+
+    # ===== Stage 1 or 3: Speech + LLM pipeline =====
     print("Loading speech encoder...")
     speech_encoder, processor = load_speech_encoder(
         config.get("model", {}).get("sfm", "facebook/seamless-m4t-v2-large")
     )
 
-    print("Loading LLM with LoRA...")
+    # Load LLM — conditionally from Stage 2 checkpoint or fresh
     llm_config = config.get("model", {})
-    training_config = config.get("training", {})
-    llm, tokenizer = load_llm_with_lora(
-        model_name=llm_config.get("llm", "unsloth/Qwen3-4B-Instruct-2507"),
-        max_seq_length=training_config.get("max_seq_length", 4096),
-        load_in_4bit=training_config.get("load_in_4bit", True),
-        lora_r=training_config.get("lora_r", 32),
-        lora_alpha=training_config.get("lora_alpha", 32),
-    )
+    if args.stage2_checkpoint:
+        from unsloth import FastLanguageModel
+        lora_path = os.path.join(args.stage2_checkpoint, "lora_adapters")
+        print(f"Loading LLM with Stage 2 LoRA from {lora_path}")
+        llm, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=lora_path,
+            max_seq_length=training_config.get("max_seq_length", 4096),
+            load_in_4bit=training_config.get("load_in_4bit", False),
+        )
+    else:
+        print("Loading LLM...")
+        llm, tokenizer = load_llm_with_lora(
+            model_name=llm_config.get("llm", "unsloth/Qwen3-4B-Instruct-2507"),
+            max_seq_length=training_config.get("max_seq_length", 4096),
+            load_in_4bit=training_config.get("load_in_4bit", False),
+            load_in_8bit=training_config.get("load_in_8bit", True),
+            no_lora=no_lora,
+            lora_r=training_config.get("lora_r", 16),
+            lora_alpha=training_config.get("lora_alpha", 16),
+        )
 
-    # Add speech placeholder token to tokenizer
+    # Add speech placeholder token
     if SPEECH_PLACEHOLDER not in tokenizer.get_vocab():
         tokenizer.add_tokens([SPEECH_PLACEHOLDER], special_tokens=True)
         llm.resize_token_embeddings(len(tokenizer))
 
     print("Building projector...")
     projector = build_projector(
-        downsample_factor=training_config.get("downsample_factor", 1),
+        downsample_factor=training_config.get("downsample_factor", 3),
+        projector_type=training_config.get("projector_type", "transformer"),
     )
 
-    # 2. Build SpeechLLM
+    # Load Stage 1 projector checkpoint if provided
+    if args.stage1_checkpoint:
+        projector_path = os.path.join(args.stage1_checkpoint, "projector.pt")
+        print(f"Loading Stage 1 projector from {projector_path}")
+        projector.load_state_dict(torch.load(projector_path, map_location="cpu"))
+
     model = SpeechLLM(speech_encoder, projector, llm, tokenizer)
 
-    # 3. Load data
+    # Load data
     print("Loading datasets...")
-    train_datasets = load_task_datasets(config)
+    sampler = None
 
-    if len(train_datasets) > 1:
-        from datasets import concatenate_datasets
-        train_dataset = concatenate_datasets(train_datasets)
+    if config["task"] == "multitask":
+        from src.data.multitask import MultiTaskDataset, TemperatureSampler, load_all_task_datasets
+        task_datasets = load_all_task_datasets(config)
+        train_dataset = MultiTaskDataset(task_datasets)
+        sampling_config = config.get("sampling", {})
+        temperature = sampling_config.get("temperature", 0.5)
+        sampler = TemperatureSampler(
+            train_dataset, temperature=temperature,
+            seed=training_config.get("seed", 42),
+        )
+        print(f"Multi-task sampling: temperature={temperature}")
     else:
-        train_dataset = train_datasets[0]
+        train_datasets = load_task_datasets(config)
+        if len(train_datasets) > 1:
+            from datasets import concatenate_datasets
+            train_dataset = concatenate_datasets(train_datasets)
+        else:
+            train_dataset = train_datasets[0]
 
     print(f"Training samples: {len(train_dataset)}")
 
-    # 4. Collator
     collator = SpeechTextCollator(
         processor=processor,
         tokenizer=tokenizer,
         max_seq_length=training_config.get("max_seq_length", 4096),
     )
 
-    # 5. Training args
+    # Training args — support max_steps
+    max_steps = training_config.get("max_steps", -1)
+    num_epochs = training_config.get("num_epochs", 3) if max_steps <= 0 else 100
+
     training_args = TrainingArguments(
         output_dir=output_dir,
-        num_train_epochs=training_config.get("num_epochs", 3),
+        num_train_epochs=num_epochs,
+        max_steps=max_steps,
         per_device_train_batch_size=training_config.get("per_device_train_batch_size", 2),
         gradient_accumulation_steps=training_config.get("gradient_accumulation_steps", 4),
         learning_rate=float(training_config.get("learning_rate", 2e-5)),
@@ -138,34 +249,63 @@ def main():
         report_to="none",
         save_total_limit=3,
         gradient_checkpointing=training_config.get("gradient_checkpointing", True),
+        remove_unused_columns=False,
     )
 
-    # 6. Train
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset,
-        data_collator=collator,
+    trainer_kwargs = dict(
+        model=model, args=training_args,
+        train_dataset=train_dataset, data_collator=collator,
     )
+
+    if sampler is not None:
+        trainer = Trainer(**trainer_kwargs)
+        trainer._get_train_sampler = lambda: sampler
+    else:
+        trainer = Trainer(**trainer_kwargs)
+
+    # Differential LR for Stage 3
+    lr_projector = training_config.get("lr_projector")
+    lr_lora = training_config.get("lr_lora")
+    if lr_projector and lr_lora and not no_lora:
+        original_create_optimizer = trainer.create_optimizer
+
+        def create_optimizer_with_param_groups():
+            projector_params = list(model.projector.parameters())
+            projector_ids = {id(p) for p in projector_params}
+            other_params = [
+                p for p in model.parameters()
+                if p.requires_grad and id(p) not in projector_ids
+            ]
+
+            from torch.optim import AdamW
+            optimizer = AdamW([
+                {"params": projector_params, "lr": float(lr_projector)},
+                {"params": other_params, "lr": float(lr_lora)},
+            ])
+            trainer.optimizer = optimizer
+            return optimizer
+
+        trainer.create_optimizer = create_optimizer_with_param_groups
 
     print("Starting training...")
     trainer.train(resume_from_checkpoint=args.resume_from)
 
-    # 7. Save
+    # Save
     print(f"Saving to {output_dir}")
-    # Save projector
+    os.makedirs(output_dir, exist_ok=True)
     torch.save(projector.state_dict(), os.path.join(output_dir, "projector.pt"))
-    # Save LoRA adapters
-    llm.save_pretrained(os.path.join(output_dir, "lora_adapters"))
-    tokenizer.save_pretrained(os.path.join(output_dir, "lora_adapters"))
+    if not no_lora:
+        llm.save_pretrained(os.path.join(output_dir, "lora_adapters"))
+        tokenizer.save_pretrained(os.path.join(output_dir, "lora_adapters"))
 
     # Push to hub if configured
     hub_config = config.get("hub", {})
     if hub_config.get("push_to_hub", False) and hub_config.get("organization", "YOUR_HF_ORG") != "YOUR_HF_ORG":
-        repo_id = f"{hub_config['organization']}/iwslt2026-{config['task']}"
+        repo_id = f"{hub_config['organization']}/iwslt2026-{task_label}"
         print(f"Pushing to {repo_id}...")
-        llm.push_to_hub(repo_id)
-        tokenizer.push_to_hub(repo_id)
+        if not no_lora:
+            llm.push_to_hub(repo_id)
+            tokenizer.push_to_hub(repo_id)
 
     print("Done!")
 

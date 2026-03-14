@@ -9,12 +9,12 @@ from datasets import load_dataset
 from src.data.utils import TASK_PROMPTS, format_chat_messages
 
 
-def load_achap_dataset(split: str = "train"):
+def load_achap_dataset(split: str = "train", language: str = "en"):
     """Load the YTSeg audio chaptering dataset."""
     ds = load_dataset("retkowski/ytseg", split=split, trust_remote_code=True)
 
     def _format(example):
-        instruction = TASK_PROMPTS["achap"]["en"]
+        instruction = TASK_PROMPTS["achap"][language]
 
         # Format chapters as [CSTART] Title [CEND] pattern
         chapters = example.get("chapters", [])

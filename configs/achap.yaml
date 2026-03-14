@@ -3,7 +3,11 @@ defaults:
   - base
 
 task: achap
-language: en
+languages:
+  - en
+  - de
+  - it
+  - zh
 
 data:
   train:
