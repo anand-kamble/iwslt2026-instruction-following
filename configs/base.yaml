@@ -1,7 +1,7 @@
 # Base configuration — shared across all tasks
 model:
   sfm: facebook/seamless-m4t-v2-large
-  llm: unsloth/Qwen3-4B-Instruct-2507
+  llm: Qwen/Qwen3-4B-Instruct-2507
 
 hub:
   organization: anand-kamble
@@ -9,10 +9,10 @@ hub:
 
 training:
   seed: 42
-  bf16: true
+  fp16: auto  # auto-selects: bf16 on CUDA, fp16 on MPS/CPU
   gradient_checkpointing: true
   load_in_4bit: false
-  load_in_8bit: true
+  load_in_8bit: false  # only used on CUDA with bitsandbytes
   no_lora: false
   text_only: false
   projector_type: transformer
@@ -20,7 +20,7 @@ training:
   lora_r: 16
   lora_alpha: 16
   gradient_accumulation_steps: 4
-  optim: adamw_8bit
+  optim: adamw_torch
   lr_scheduler_type: cosine
   warmup_steps: 100
   logging_steps: 50

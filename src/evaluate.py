@@ -19,24 +19,30 @@ from src.model.speech_llm import SpeechLLM, SPEECH_PLACEHOLDER
 from src.data.utils import TASK_PROMPTS, format_chat_messages
 
 
-def load_checkpoint(checkpoint_dir: str, config: dict = None, device: str = "cuda"):
+def load_checkpoint(checkpoint_dir: str, config: dict = None, device: str = None):
     """Load a trained SpeechLLM from a checkpoint directory."""
-    from unsloth import FastLanguageModel
+    from src.model.build_model import load_llm_from_checkpoint, get_device
+
+    if device is None:
+        device = get_device()
 
     config = config or {}
     training_config = config.get("training", {})
+    llm_config = config.get("model", {})
 
     # Load speech encoder
     speech_encoder, processor = load_speech_encoder(device=device)
 
     # Load LLM with LoRA adapters
     lora_path = os.path.join(checkpoint_dir, "lora_adapters")
-    llm, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=lora_path,
-        max_seq_length=training_config.get("max_seq_length", 4096),
+    llm, tokenizer = load_llm_from_checkpoint(
+        checkpoint_dir=lora_path,
+        base_model_name=llm_config.get("llm", "Qwen/Qwen3-4B-Instruct-2507"),
         load_in_4bit=training_config.get("load_in_4bit", False),
+        load_in_8bit=training_config.get("load_in_8bit", False),
+        device=device,
     )
-    FastLanguageModel.for_inference(llm)
+    llm.eval()
 
     # Load projector with correct type and downsample factor
     projector = build_projector(

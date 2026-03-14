@@ -14,9 +14,19 @@ import torch
 from transformers import TrainingArguments, Trainer
 
 from src.config import load_config
-from src.model.build_model import load_speech_encoder, load_llm_with_lora, build_projector
+from src.model.build_model import load_speech_encoder, load_llm_with_lora, build_projector, get_device
 from src.model.speech_llm import SpeechLLM, SPEECH_PLACEHOLDER
 from src.data.collator import SpeechTextCollator
+
+
+def get_precision_args():
+    """Auto-select precision: bf16 on CUDA, fp16 on MPS, fp32 on CPU."""
+    device = get_device()
+    if device == "cuda":
+        return {"bf16": True}
+    elif device == "mps":
+        return {"fp16": True}
+    return {}
 
 
 def load_task_datasets(config: dict):
@@ -95,10 +105,9 @@ def main():
         print("=== Stage 2: Text-only LoRA training ===")
         llm_config = config.get("model", {})
         llm, tokenizer = load_llm_with_lora(
-            model_name=llm_config.get("llm", "unsloth/Qwen3-4B-Instruct-2507"),
-            max_seq_length=training_config.get("max_seq_length", 4096),
+            model_name=llm_config.get("llm", "Qwen/Qwen3-4B-Instruct-2507"),
             load_in_4bit=training_config.get("load_in_4bit", False),
-            load_in_8bit=training_config.get("load_in_8bit", True),
+            load_in_8bit=training_config.get("load_in_8bit", False),
             no_lora=False,
             lora_r=training_config.get("lora_r", 16),
             lora_alpha=training_config.get("lora_alpha", 16),
@@ -128,13 +137,14 @@ def main():
             warmup_steps=training_config.get("warmup_steps", 100),
             logging_steps=training_config.get("logging_steps", 50),
             save_steps=training_config.get("save_steps", 500),
-            bf16=training_config.get("bf16", True),
-            optim=training_config.get("optim", "adamw_8bit"),
+            optim=training_config.get("optim", "adamw_torch"),
             lr_scheduler_type=training_config.get("lr_scheduler_type", "cosine"),
             seed=training_config.get("seed", 42),
             report_to="none",
             save_total_limit=3,
             remove_unused_columns=False,
+            gradient_checkpointing=training_config.get("gradient_checkpointing", True),
+            **get_precision_args(),
         )
 
         trainer = Trainer(
@@ -157,21 +167,21 @@ def main():
     # Load LLM — conditionally from Stage 2 checkpoint or fresh
     llm_config = config.get("model", {})
     if args.stage2_checkpoint:
-        from unsloth import FastLanguageModel
+        from src.model.build_model import load_llm_from_checkpoint
         lora_path = os.path.join(args.stage2_checkpoint, "lora_adapters")
         print(f"Loading LLM with Stage 2 LoRA from {lora_path}")
-        llm, tokenizer = FastLanguageModel.from_pretrained(
-            model_name=lora_path,
-            max_seq_length=training_config.get("max_seq_length", 4096),
+        llm, tokenizer = load_llm_from_checkpoint(
+            checkpoint_dir=lora_path,
+            base_model_name=llm_config.get("llm", "Qwen/Qwen3-4B-Instruct-2507"),
             load_in_4bit=training_config.get("load_in_4bit", False),
+            load_in_8bit=training_config.get("load_in_8bit", False),
         )
     else:
         print("Loading LLM...")
         llm, tokenizer = load_llm_with_lora(
-            model_name=llm_config.get("llm", "unsloth/Qwen3-4B-Instruct-2507"),
-            max_seq_length=training_config.get("max_seq_length", 4096),
+            model_name=llm_config.get("llm", "Qwen/Qwen3-4B-Instruct-2507"),
             load_in_4bit=training_config.get("load_in_4bit", False),
-            load_in_8bit=training_config.get("load_in_8bit", True),
+            load_in_8bit=training_config.get("load_in_8bit", False),
             no_lora=no_lora,
             lora_r=training_config.get("lora_r", 16),
             lora_alpha=training_config.get("lora_alpha", 16),
@@ -242,14 +252,14 @@ def main():
         logging_steps=training_config.get("logging_steps", 50),
         save_steps=training_config.get("save_steps", 500),
         eval_steps=training_config.get("eval_steps", 500),
-        bf16=training_config.get("bf16", True),
-        optim=training_config.get("optim", "adamw_8bit"),
+        optim=training_config.get("optim", "adamw_torch"),
         lr_scheduler_type=training_config.get("lr_scheduler_type", "cosine"),
         seed=training_config.get("seed", 42),
         report_to="none",
         save_total_limit=3,
         gradient_checkpointing=training_config.get("gradient_checkpointing", True),
         remove_unused_columns=False,
+        **get_precision_args(),
     )
 
     trainer_kwargs = dict(

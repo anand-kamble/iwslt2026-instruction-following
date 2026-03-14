@@ -14,14 +14,13 @@ dependencies = [
     "peft",
     "trl",
     "accelerate",
-    "bitsandbytes",
     "mcif-bench",
     "soundfile",
 ]
 
 [project.optional-dependencies]
-unsloth = [
-    "unsloth",
+cuda = [
+    "bitsandbytes",
 ]
 eval = [
     "jiwer>=3.0",

@@ -167,14 +167,15 @@ def test_stage_configs_parse():
         assert config["stage"] == expected_stage
 
 
-def test_base_config_8bit():
-    """Base config should default to 8-bit quantization."""
+def test_base_config_defaults():
+    """Base config should have correct quantization and LoRA defaults."""
     with open(CONFIGS_DIR / "base.yaml") as f:
         config = yaml.safe_load(f)
-    assert config["training"]["load_in_8bit"] is True
+    # Quantization off by default (CUDA-only, enabled in CUDA-specific configs)
     assert config["training"]["load_in_4bit"] is False
     assert config["training"]["lora_r"] == 16
     assert config["training"]["lora_alpha"] == 16
+    assert config["training"]["optim"] == "adamw_torch"
 
 
 def test_stage1_no_lora():
