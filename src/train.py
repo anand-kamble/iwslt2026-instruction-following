@@ -133,9 +133,13 @@ def main():
             text_only=True,
         )
 
+        max_steps = training_config.get("max_steps", -1)
+        num_epochs = training_config.get("num_epochs", 2) if max_steps <= 0 else 100
+
         training_args = TrainingArguments(
             output_dir=output_dir,
-            num_train_epochs=training_config.get("num_epochs", 2),
+            num_train_epochs=num_epochs,
+            max_steps=max_steps,
             per_device_train_batch_size=training_config.get("per_device_train_batch_size", 8),
             gradient_accumulation_steps=training_config.get("gradient_accumulation_steps", 1),
             learning_rate=float(training_config.get("learning_rate", 3e-4)),
@@ -145,8 +149,10 @@ def main():
             optim=training_config.get("optim", "adamw_torch"),
             lr_scheduler_type=training_config.get("lr_scheduler_type", "cosine"),
             seed=training_config.get("seed", 42),
-            report_to="none",
+            report_to="tensorboard",
+            logging_dir=training_config.get("logging_dir", os.path.join(output_dir, "logs")),
             save_total_limit=3,
+            save_safetensors=False,
             remove_unused_columns=False,
             gradient_checkpointing=training_config.get("gradient_checkpointing", True),
             **get_precision_args(),
@@ -203,11 +209,16 @@ def main():
         projector_type=training_config.get("projector_type", "transformer"),
     )
 
-    # Load Stage 1 projector checkpoint if provided
+    # Load projector checkpoint if provided (from Stage 0 or previous Stage 1)
     if args.stage1_checkpoint:
         projector_path = os.path.join(args.stage1_checkpoint, "projector.pt")
-        print(f"Loading Stage 1 projector from {projector_path}")
-        projector.load_state_dict(torch.load(projector_path, map_location="cpu"))
+        print(f"Loading projector from {projector_path}")
+        state_dict = torch.load(projector_path, map_location="cpu")
+        missing, unexpected = projector.load_state_dict(state_dict, strict=False)
+        if missing:
+            print(f"  Missing keys (randomly initialized): {missing}")
+        if unexpected:
+            print(f"  Unexpected keys (ignored): {unexpected}")
 
     # Freeze LLM in Stage 1 (no LoRA — only projector trains)
     if no_lora:
@@ -269,6 +280,7 @@ def main():
         report_to="tensorboard",
         logging_dir=training_config.get("logging_dir", os.path.join(output_dir, "logs")),
         save_total_limit=3,
+        save_safetensors=False,  # avoid shared tensor error with tied weights
         gradient_checkpointing=training_config.get("gradient_checkpointing", True),
         remove_unused_columns=False,
         **get_precision_args(),
@@ -281,7 +293,7 @@ def main():
 
     if sampler is not None:
         trainer = Trainer(**trainer_kwargs)
-        trainer._get_train_sampler = lambda: sampler
+        trainer._get_train_sampler = lambda *args, **kwargs: sampler
     else:
         trainer = Trainer(**trainer_kwargs)
 

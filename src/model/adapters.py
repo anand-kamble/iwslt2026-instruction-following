@@ -63,8 +63,9 @@ class SpeechProjector(nn.Module):
 class TransformerProjector(nn.Module):
     """Projects speech encoder outputs into the LLM's embedding space.
 
-    Architecture: Conv1d downsample -> Transformer encoder -> Linear projection.
-    Based on NAVER IWSLT 2025 constrained system projector (~39M params).
+    Architecture: Frame averaging downsample -> Transformer encoder -> Linear projection.
+    Based on NAVER IWSLT 2025 constrained system projector.
+    Uses frame averaging (not Conv1d) for MPS compatibility.
     """
 
     def __init__(
@@ -79,14 +80,6 @@ class TransformerProjector(nn.Module):
     ):
         super().__init__()
         self.downsample_factor = downsample_factor
-
-        if downsample_factor > 1:
-            self.downsample = nn.Conv1d(
-                speech_dim, speech_dim,
-                kernel_size=downsample_factor, stride=downsample_factor,
-            )
-        else:
-            self.downsample = None
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=speech_dim,
@@ -109,10 +102,13 @@ class TransformerProjector(nn.Module):
         """
         x = speech_features
 
-        if self.downsample is not None:
-            x = x.transpose(1, 2)
-            x = self.downsample(x)
-            x = x.transpose(1, 2)
+        # Frame averaging downsample (MPS-safe, matches NAVER's approach)
+        if self.downsample_factor > 1:
+            B, T, D = x.shape
+            T_down = T // self.downsample_factor
+            x = x[:, :T_down * self.downsample_factor].reshape(
+                B, T_down, self.downsample_factor, D
+            ).mean(dim=2)
 
         x = self.transformer(x)
         return self.output_proj(x)

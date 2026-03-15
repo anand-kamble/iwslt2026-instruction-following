@@ -1,0 +1,60 @@
+Task: text_lora | Stage: 2 | Text-only: True | No-LoRA: False
+Output: ./outputs/stage2_text_lora
+=== Stage 2: Text-only LoRA training ===
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:00<00:00,  2.80it/s]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:00<00:00,  2.66it/s]Loading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00,  3.97it/s]
+trainable params: 33,030,144 || all params: 4,055,498,240 || trainable%: 0.8145
+Generating partI.train split: 0 examples [00:00, ? examples/s]Generating partI.train split: 104014 examples [00:00, 167260.03 examples/s]Generating partI.train split: 104014 examples [00:00, 162040.32 examples/s]
+Generating partI.test split: 0 examples [00:00, ? examples/s]Generating partI.test split: 2620 examples [00:00, 345872.99 examples/s]
+Generating partII.train split: 0 examples [00:00, ? examples/s]Generating partII.train split: 0 examples [00:00, ? examples/s]Generating partII.train split: 0 examples [00:00, ? examples/s]
+Traceback (most recent call last):
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/builder.py", line 1872, in _prepare_split_single
+    for key, table in generator:
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/packaged_modules/json/json.py", line 260, in _generate_tables
+    self._cast_table(pa_table, json_field_paths=json_field_paths),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/packaged_modules/json/json.py", line 120, in _cast_table
+    pa_table = table_cast(pa_table, self.info.features.arrow_schema)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/table.py", line 2272, in table_cast
+    return cast_table_to_schema(table, schema)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/table.py", line 2218, in cast_table_to_schema
+    raise CastError(
+datasets.table.CastError: Couldn't cast
+text: string
+duration: double
+answer: string
+question_and_option: string
+answer_and_analysis: string
+speech_path: string
+question: string
+to
+{'text': Value('string'), 'duration': Value('float64'), 'question': Value('string'), 'answer': Value('string'), 'speech_path': Value('string')}
+because column names don't match
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/anand/iwslt/src/train.py", line 344, in <module>
+    main()
+  File "/Users/anand/iwslt/src/train.py", line 124, in main
+    train_datasets = load_text_only_datasets(config)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/anand/iwslt/src/data/text_only.py", line 157, in load_text_only_datasets
+    datasets_list.append(load_sqa_text_only("train", "en"))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/anand/iwslt/src/data/text_only.py", line 85, in load_sqa_text_only
+    ds = load_dataset("ZihanZhao/LibriSQA", split=hf_split)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/load.py", line 1505, in load_dataset
+    builder_instance.download_and_prepare(
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/builder.py", line 884, in download_and_prepare
+    self._download_and_prepare(
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/builder.py", line 947, in _download_and_prepare
+    self._prepare_split(split_generator, **prepare_split_kwargs)
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/builder.py", line 1739, in _prepare_split
+    for job_id, done, content in self._prepare_split_single(
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/builder.py", line 1922, in _prepare_split_single
+    raise DatasetGenerationError("An error occurred while generating the dataset") from e
+datasets.exceptions.DatasetGenerationError: An error occurred while generating the dataset

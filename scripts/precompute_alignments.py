@@ -22,6 +22,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.model.build_model import get_device
 
 
+def _resample_one(item):
+    """Resample a single audio to 16kHz. Must be top-level for pickling."""
+    import torch
+    import torchaudio
+    audio_array, sr = item
+    if sr != 16000:
+        waveform = torch.tensor(audio_array).unsqueeze(0)
+        audio_array = torchaudio.transforms.Resample(sr, 16000)(waveform).squeeze(0).numpy()
+    return audio_array
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_dir", default="data/alignments")
@@ -47,11 +58,12 @@ def main():
 
     import torchaudio
 
-    # Resample + extract speech features one at a time (memory safe)
+    resampler = torchaudio.transforms.Resample(48000, 16000)
+
     speech_features_list = []
     transcriptions = []
 
-    for i in tqdm(range(len(ds)), desc="Processing"):
+    for i in tqdm(range(len(ds)), desc="Extracting speech features"):
         sample = ds[i]
         audio_array = sample["audio_array"]
         sr = sample.get("sampling_rate", 48000)
@@ -59,9 +71,9 @@ def main():
         # Resample to 16kHz
         if sr != 16000:
             waveform = torch.tensor(audio_array).unsqueeze(0)
-            audio_array = torchaudio.transforms.Resample(sr, 16000)(waveform).squeeze(0).numpy()
+            audio_array = resampler(waveform).squeeze(0).numpy()
 
-        # Extract speech features
+        # Encode
         audio_input = processor(
             audio=audio_array,
             sampling_rate=16000,
@@ -86,7 +98,7 @@ def main():
 
         speech_feats_down = speech_feats[:T_down * args.downsample_factor].reshape(
             T_down, args.downsample_factor, -1
-        ).mean(dim=1)  # (T_down, 1024)
+        ).mean(dim=1)
 
         speech_features_list.append(speech_feats_down)
         transcriptions.append(sample["messages"][-1]["content"])

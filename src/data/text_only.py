@@ -13,24 +13,38 @@ from src.data.utils import TASK_PROMPTS, UNANSWERABLE, format_text_only_messages
 
 
 def load_mt_europarlst(target_lang: str, split: str = "train"):
-    """Load EuroParlST text-only MT pairs (EN transcript -> target translation)."""
-    lang_map = {"de": "en-de", "it": "en-it"}
+    """Load EuroParlST text-only MT pairs (EN transcript -> target translation).
+
+    Uses tj-solergibert/Europarl-ST which has transcriptions in all 9 languages.
+    No audio loaded — text only.
+    """
+    lang_map = {"de": "de", "it": "it"}
     if target_lang not in lang_map:
         raise ValueError(f"EuroParlST text doesn't support EN->{target_lang}")
 
-    ds = load_dataset(
-        "facebook/europarl_st", lang_map[target_lang],
-        split=split, trust_remote_code=True,
-    )
+    ds = load_dataset("tj-solergibert/Europarl-ST", split=split)
+
+    # Filter for samples that have both English and target language transcriptions
+    def has_both_langs(example):
+        transcriptions = example.get("transcriptions", {})
+        if not isinstance(transcriptions, dict):
+            return False
+        en_text = transcriptions.get("en", "")
+        tgt_text = transcriptions.get(target_lang, "")
+        return bool(en_text and en_text.strip() and tgt_text and tgt_text.strip())
+
+    import os
+    num_proc = os.cpu_count() or 1
+    ds = ds.filter(has_both_langs, num_proc=num_proc)
 
     def _format(example):
         instruction = TASK_PROMPTS["s2tt"][target_lang]
-        # EuroParlST stores translations in the target language field
-        target_text = example.get("translation", example.get("target_text", example.get("text", "")))
+        target_text = example["transcriptions"][target_lang]
         example["messages"] = format_text_only_messages(instruction, target_text)
         return example
 
-    return ds.map(_format)
+    ds = ds.map(_format, num_proc=num_proc)
+    return ds
 
 
 def load_mt_gigast(target_lang: str, split: str = "train"):
@@ -66,7 +80,9 @@ def load_sqa_text_only(split: str = "train", language: str = "en"):
     if language != "en":
         return _load_translated_sqa_text_only(language)
 
-    ds = load_dataset("westbrook/librisqa", split=split, trust_remote_code=True)
+    split_map = {"train": "partI.train", "test": "partI.test"}
+    hf_split = split_map.get(split, split)
+    ds = load_dataset("ZihanZhao/LibriSQA", split=hf_split)
 
     def _format(example):
         question = example.get("question", "")

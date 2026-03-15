@@ -1,0 +1,39 @@
+Task: text_lora | Stage: 2 | Text-only: True | No-LoRA: False
+Output: ./outputs/stage2_text_lora
+=== Stage 2: Text-only LoRA training ===
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:01<00:03,  1.73s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:03<00:01,  1.73s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:03<00:00,  1.17s/it]
+trainable params: 33,030,144 || all params: 4,055,498,240 || trainable%: 0.8145
+Generating train split:   0%|          | 0/116138 [00:00<?, ? examples/s]Generating train split:  80%|████████  | 93000/116138 [00:00<00:00, 891059.65 examples/s]Generating train split: 100%|██████████| 116138/116138 [00:00<00:00, 917311.48 examples/s]
+Generating test split:   0%|          | 0/18901 [00:00<?, ? examples/s]Generating test split: 100%|██████████| 18901/18901 [00:00<00:00, 893146.09 examples/s]
+Generating valid split:   0%|          | 0/17538 [00:00<?, ? examples/s]Generating valid split: 100%|██████████| 17538/17538 [00:00<00:00, 904059.48 examples/s]
+Filter (num_proc=14):   0%|          | 0/116138 [00:00<?, ? examples/s]Filter (num_proc=14):   5%|▌         | 6000/116138 [00:00<00:02, 37718.50 examples/s]Filter (num_proc=14): 100%|██████████| 116138/116138 [00:00<00:00, 349053.22 examples/s]
+Map (num_proc=14):   0%|          | 0/82779 [00:00<?, ? examples/s]Map (num_proc=14):   1%|          | 1000/82779 [00:00<00:11, 7116.48 examples/s]Map (num_proc=14):  30%|██▉       | 24739/82779 [00:00<00:00, 121560.94 examples/s]Map (num_proc=14):  60%|█████▉    | 49376/82779 [00:00<00:00, 172932.10 examples/s]Map (num_proc=14):  88%|████████▊ | 72434/82779 [00:00<00:00, 193363.22 examples/s]Map (num_proc=14): 100%|██████████| 82779/82779 [00:00<00:00, 138930.13 examples/s]
+Filter (num_proc=14):   0%|          | 0/116138 [00:00<?, ? examples/s]Filter (num_proc=14):   2%|▏         | 2000/116138 [00:00<00:07, 14280.38 examples/s]Filter (num_proc=14): 100%|██████████| 116138/116138 [00:00<00:00, 575784.86 examples/s]Filter (num_proc=14): 100%|██████████| 116138/116138 [00:00<00:00, 368821.80 examples/s]
+Map (num_proc=14):   0%|          | 0/75197 [00:00<?, ? examples/s]Map (num_proc=14):   1%|          | 721/75197 [00:00<00:13, 5642.69 examples/s]Map (num_proc=14):  33%|███▎      | 25152/75197 [00:00<00:00, 128269.90 examples/s]Map (num_proc=14):  61%|██████    | 45673/75197 [00:00<00:00, 160846.99 examples/s]Map (num_proc=14):  92%|█████████▏| 69501/75197 [00:00<00:00, 189591.37 examples/s]Map (num_proc=14): 100%|██████████| 75197/75197 [00:00<00:00, 138986.23 examples/s]
+`trust_remote_code` is not supported anymore.
+Please check that the Hugging Face dataset 'westbrook/librisqa' isn't based on a loading script and remove `trust_remote_code`.
+If the dataset is based on a loading script, please ask the dataset author to remove it and convert it to a standard format like Parquet.
+Traceback (most recent call last):
+  File "/Users/anand/iwslt/src/train.py", line 344, in <module>
+    main()
+  File "/Users/anand/iwslt/src/train.py", line 124, in main
+    train_datasets = load_text_only_datasets(config)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/anand/iwslt/src/data/text_only.py", line 155, in load_text_only_datasets
+    datasets_list.append(load_sqa_text_only("train", "en"))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/anand/iwslt/src/data/text_only.py", line 83, in load_sqa_text_only
+    ds = load_dataset("westbrook/librisqa", split=split, trust_remote_code=True)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/load.py", line 1485, in load_dataset
+    builder_instance = load_dataset_builder(
+                       ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/load.py", line 1130, in load_dataset_builder
+    dataset_module = dataset_module_factory(
+                     ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/load.py", line 1023, in dataset_module_factory
+    raise e1 from None
+  File "/Users/anand/iwslt/.venv/lib/python3.11/site-packages/datasets/load.py", line 980, in dataset_module_factory
+    raise DatasetNotFoundError(f"Dataset '{path}' doesn't exist on the Hub or cannot be accessed.") from e
+datasets.exceptions.DatasetNotFoundError: Dataset 'westbrook/librisqa' doesn't exist on the Hub or cannot be accessed.

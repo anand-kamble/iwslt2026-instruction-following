@@ -32,6 +32,7 @@ outputs/
 wandb/
 mlruns/
 lightning_logs/
+*.tfevents.*
 
 # Jupyter
 .ipynb_checkpoints/

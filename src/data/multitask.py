@@ -122,13 +122,15 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
     tasks_config = config["tasks"]
     all_datasets: dict[str, Dataset] = {}
 
+    max_samples = config.get("data", {}).get("max_samples")
+
     # ASR
     if "asr" in tasks_config:
         from src.data.asr import load_asr_dataset
         asr_datasets = []
         for ds_name in tasks_config["asr"].get("train", []):
             try:
-                asr_datasets.append(load_asr_dataset(ds_name, "train"))
+                asr_datasets.append(load_asr_dataset(ds_name, "train", max_samples=max_samples))
             except (ValueError, FileNotFoundError) as e:
                 print(f"Skipping ASR/{ds_name}: {e}")
         if asr_datasets:
