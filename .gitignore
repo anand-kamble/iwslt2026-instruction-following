@@ -15,6 +15,7 @@ env/
 # Checkpoints & model files
 checkpoints/
 outputs/
+output/
 *.pt
 *.bin
 *.safetensors

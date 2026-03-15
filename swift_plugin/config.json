@@ -1,0 +1,12 @@
+{
+  "downsample_factor": 3,
+  "llm_dim": 2560,
+  "llm_model_name": "Qwen/Qwen3-4B-Instruct-2507",
+  "model_type": "speech_llm",
+  "projector_ffn_dim": 2048,
+  "projector_num_heads": 8,
+  "projector_num_layers": 4,
+  "sfm_model_name": "facebook/seamless-m4t-v2-large",
+  "speech_dim": 1024,
+  "transformers_version": "4.57.6"
+}

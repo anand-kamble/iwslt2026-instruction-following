@@ -16,6 +16,7 @@ dependencies = [
     "accelerate",
     "mcif-bench",
     "soundfile",
+    "ms-swift>=4.0,<5.0",
 ]
 
 [project.optional-dependencies]
@@ -46,4 +47,4 @@ select = ["E", "F", "I", "W"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["src*", "swift_plugin*"]

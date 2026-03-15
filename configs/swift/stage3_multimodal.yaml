@@ -1,0 +1,36 @@
+# Stage 3: Multimodal merge (projector + LoRA jointly)
+# Load prior stages via env vars:
+#   STAGE1_CHECKPOINT=output/stage1 STAGE2_CHECKPOINT=output/stage2 swift sft ...
+model: ./swift_plugin
+model_type: speech_llm
+template: speech_llm
+external_plugins: swift_plugin/register.py
+
+dataset: data/europarlst/asr_train.jsonl
+split_dataset_ratio: 0.01
+
+freeze_vit: true
+freeze_aligner: false
+freeze_llm: false
+tuner_type: lora
+lora_rank: 16
+lora_alpha: 16
+target_modules: all-linear
+aligner_lr: 1e-4
+
+max_steps: 1000
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+learning_rate: 1e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.05
+gradient_checkpointing: true
+
+logging_steps: 5
+save_steps: 200
+save_total_limit: 3
+max_length: 4096
+dataloader_num_workers: 0
+
+output_dir: output/stage3
+report_to: tensorboard
