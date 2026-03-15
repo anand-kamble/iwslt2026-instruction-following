@@ -48,10 +48,29 @@ class SpeechTextCollator:
                 batch["input_features"] = padded
                 batch["input_features_attention_mask"] = mask
             else:
-                # Raw audio mode
-                audios = [f["audio"] for f in features]
+                # Raw audio mode — supports both dict format and pre-extracted arrays
+                # Resample to 16kHz if needed (SeamlessM4T expects 16kHz)
+                import torchaudio
+                audios = []
+                for f in features:
+                    if "audio_array" in f:
+                        audio = f["audio_array"]
+                        sr = f.get("sampling_rate", 16000)
+                    elif isinstance(f.get("audio"), dict):
+                        audio = f["audio"]["array"]
+                        sr = f["audio"].get("sampling_rate", 16000)
+                    else:
+                        audio = f["audio"]
+                        sr = 16000
+
+                    if sr != 16000:
+                        waveform = torch.tensor(audio).unsqueeze(0)
+                        audio = torchaudio.transforms.Resample(sr, 16000)(waveform).squeeze(0).numpy()
+
+                    audios.append(audio)
+
                 audio_inputs = self.processor(
-                    audios=audios,
+                    audio=audios,
                     sampling_rate=16000,
                     return_tensors="pt",
                     padding=True,

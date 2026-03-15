@@ -20,12 +20,16 @@ from src.data.collator import SpeechTextCollator
 
 
 def get_precision_args():
-    """Auto-select precision: bf16 on CUDA, fp16 on MPS, fp32 on CPU."""
+    """Auto-select precision: bf16 on CUDA, fp32 on MPS/CPU.
+
+    MPS does not support bf16, and fp16 with gradient scaling causes
+    'Attempting to unscale FP16 gradients' errors. Use fp32 on MPS —
+    the model is already loaded in float16, so memory is fine.
+    """
     device = get_device()
     if device == "cuda":
         return {"bf16": True}
-    elif device == "mps":
-        return {"fp16": True}
+    # MPS and CPU: no mixed precision (model already in fp16, compute in fp32)
     return {}
 
 
@@ -38,9 +42,10 @@ def load_task_datasets(config: dict):
 
     if task == "asr":
         from src.data.asr import load_asr_dataset
+        max_samples = config.get("data", {}).get("max_samples")
         train_datasets = []
         for ds_name in config["data"]["train"]:
-            train_datasets.append(load_asr_dataset(ds_name, "train"))
+            train_datasets.append(load_asr_dataset(ds_name, "train", max_samples=max_samples))
         return train_datasets
 
     elif task == "s2tt":
@@ -204,6 +209,12 @@ def main():
         print(f"Loading Stage 1 projector from {projector_path}")
         projector.load_state_dict(torch.load(projector_path, map_location="cpu"))
 
+    # Freeze LLM in Stage 1 (no LoRA — only projector trains)
+    if no_lora:
+        print("Freezing LLM (Stage 1: projector-only training)")
+        for param in llm.parameters():
+            param.requires_grad = False
+
     model = SpeechLLM(speech_encoder, projector, llm, tokenizer)
 
     # Load data
@@ -255,7 +266,8 @@ def main():
         optim=training_config.get("optim", "adamw_torch"),
         lr_scheduler_type=training_config.get("lr_scheduler_type", "cosine"),
         seed=training_config.get("seed", 42),
-        report_to="none",
+        report_to="tensorboard",
+        logging_dir=training_config.get("logging_dir", os.path.join(output_dir, "logs")),
         save_total_limit=3,
         gradient_checkpointing=training_config.get("gradient_checkpointing", True),
         remove_unused_columns=False,

@@ -23,6 +23,24 @@ class SpeechLLM(nn.Module):
         self.llm = llm  # LoRA trainable
         self.tokenizer = tokenizer
 
+    @property
+    def device(self):
+        """Return device of the LLM for Trainer compatibility."""
+        return next(self.llm.parameters()).device
+
+    @property
+    def dtype(self):
+        """Return dtype of the LLM for Trainer compatibility."""
+        return next(self.llm.parameters()).dtype
+
+    def gradient_checkpointing_enable(self, **kwargs):
+        """Delegate gradient checkpointing to the LLM."""
+        self.llm.gradient_checkpointing_enable(**kwargs)
+
+    def gradient_checkpointing_disable(self):
+        """Delegate gradient checkpointing to the LLM."""
+        self.llm.gradient_checkpointing_disable()
+
     def _get_embed_tokens(self):
         """Get the embedding layer, handling both PEFT-wrapped and vanilla models."""
         # PEFT/Unsloth: llm.model.model.embed_tokens
@@ -72,6 +90,16 @@ class SpeechLLM(nn.Module):
             attention_mask: (batch, text_seq) — text attention mask
             labels: (batch, text_seq) — labels for language modeling loss
         """
+        # Move inputs to model device (MPS/CUDA) if needed
+        device = self.device
+        if input_features.device != device:
+            input_features = input_features.to(device)
+            input_features_attention_mask = input_features_attention_mask.to(device)
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
+            if labels is not None:
+                labels = labels.to(device)
+
         # 1. Encode speech
         speech_features = self.encode_speech(
             input_features, input_features_attention_mask
