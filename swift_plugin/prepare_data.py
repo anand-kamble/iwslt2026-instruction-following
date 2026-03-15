@@ -10,13 +10,16 @@ Usage:
 """
 
 import argparse
+import io
 import json
 import os
 from pathlib import Path
 
+import pandas as pd
+import soundfile as sf
 import torch
 import torchaudio
-from datasets import load_dataset
+from huggingface_hub import list_repo_files, hf_hub_download
 from tqdm import tqdm
 
 # Add project root to path
@@ -39,75 +42,96 @@ def _extract_transcription(text: str) -> str:
 
 
 def prepare_speech_asr(max_samples: int = None):
-    """Download EuroParlST English speech, resample to 16kHz, save as wav + JSONL."""
+    """Download EuroParlST English speech, resample to 16kHz, save as wav + JSONL.
+
+    Loads directly from CLAPv2/Europarl-st parquet files to bypass broken
+    datasets metadata ('List' feature type not recognized in newer datasets lib).
+    """
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     output_jsonl = EUROPARLST_DIR / "asr_train.jsonl"
 
+    # Count existing samples
+    existing_count = 0
     if output_jsonl.exists():
         with open(output_jsonl) as f:
-            existing = sum(1 for _ in f)
-        if max_samples and existing >= max_samples:
-            print(f"ASR JSONL already has {existing} samples, skipping.")
+            existing_count = sum(1 for _ in f)
+        if max_samples and existing_count >= max_samples:
+            print(f"ASR JSONL already has {existing_count} samples, skipping.")
             return
-        print(f"ASR JSONL has {existing} samples, continuing...")
+        print(f"ASR JSONL has {existing_count} samples, continuing...")
 
-    # Check which audio files already exist
-    existing_ids = set()
-    if output_jsonl.exists():
-        with open(output_jsonl) as f:
-            for line in f:
-                record = json.loads(line)
-                existing_ids.add(record["audios"][0])
+    # List train parquet files from HuggingFace
+    print("Listing CLAPv2/Europarl-st parquet files...")
+    all_files = list_repo_files("CLAPv2/Europarl-st", repo_type="dataset")
+    train_files = sorted([f for f in all_files if f.startswith("data/train/")])
+    print(f"Found {len(train_files)} train parquet files")
 
     resampler = torchaudio.transforms.Resample(48000, 16000)
-    ds_stream = load_dataset("CLAPv2/Europarl-st", split="train", streaming=True)
-
     instruction = TASK_PROMPTS["asr"]["en"]
-    count = len(existing_ids)
+    count = existing_count
     target = max_samples or float("inf")
 
-    print(f"Streaming EuroParlST — collecting up to {max_samples or 'all'} English samples...")
-
-    with open(output_jsonl, "a") as f:
-        for sample in tqdm(ds_stream, desc="Collecting speech samples"):
+    with open(output_jsonl, "a") as jsonl_f:
+        for pq_file in tqdm(train_files, desc="Processing parquet files"):
             if count >= target:
                 break
 
-            if not sample["text"].startswith("A person is saying:"):
-                continue
+            # Download parquet file
+            local_path = hf_hub_download(
+                "CLAPv2/Europarl-st", pq_file, repo_type="dataset",
+            )
+            df = pd.read_parquet(local_path)
 
-            # Generate filename
-            audio_path = str(AUDIO_DIR / f"{count:06d}.wav")
+            for _, row in df.iterrows():
+                if count >= target:
+                    break
 
-            if audio_path in existing_ids:
+                text = row["text"]
+                if not text.startswith("A person is saying:"):
+                    continue
+
+                # Decode audio from bytes
+                audio_bytes = row["audio"]["bytes"]
+                if audio_bytes is None:
+                    continue
+
+                try:
+                    audio_data, sr = sf.read(io.BytesIO(audio_bytes))
+                except Exception:
+                    continue
+
+                # Convert to tensor and resample to 16kHz
+                waveform = torch.tensor(audio_data, dtype=torch.float32)
+                if waveform.dim() == 1:
+                    waveform = waveform.unsqueeze(0)
+                elif waveform.dim() == 2 and waveform.shape[1] <= 2:
+                    # (samples, channels) -> (channels, samples)
+                    waveform = waveform.T
+                if waveform.shape[0] > 1:
+                    waveform = waveform.mean(dim=0, keepdim=True)
+
+                if sr != 16000:
+                    r = torchaudio.transforms.Resample(sr, 16000)
+                    waveform = r(waveform)
+
+                # Save as wav
+                audio_path = str(AUDIO_DIR / f"{count:06d}.wav")
+                torchaudio.save(audio_path, waveform, 16000)
+
+                # Write JSONL
+                transcription = _extract_transcription(text)
+                record = {
+                    "messages": [
+                        {"role": "user", "content": f"<audio>\n{instruction}"},
+                        {"role": "assistant", "content": transcription},
+                    ],
+                    "audios": [audio_path],
+                }
+                jsonl_f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                jsonl_f.flush()
                 count += 1
-                continue
 
-            # Extract and resample audio
-            audio_decoder = sample["audio"]
-            samples = audio_decoder.get_all_samples()
-            waveform = samples.data.squeeze(0)  # (num_samples,)
-            sr = int(samples.sample_rate)
-
-            if sr != 16000:
-                waveform = resampler(waveform.unsqueeze(0)).squeeze(0)
-
-            # Save as 16kHz wav
-            torchaudio.save(audio_path, waveform.unsqueeze(0), 16000)
-
-            # Write JSONL entry
-            transcription = _extract_transcription(sample["text"])
-            record = {
-                "messages": [
-                    {"role": "user", "content": f"<audio>\n{instruction}"},
-                    {"role": "assistant", "content": transcription},
-                ],
-                "audios": [audio_path],
-            }
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-            count += 1
-
-    print(f"ASR: {count} samples saved to {output_jsonl}")
+    print(f"ASR: {count} total samples saved to {output_jsonl}")
 
 
 def prepare_speech_s2tt(max_samples: int = None):
