@@ -1,6 +1,6 @@
 """Speech-to-Text Translation dataset loading and preprocessing.
 
-Permitted datasets: EuroParlST, CoVoST2, GigaST
+Permitted datasets (constrained): EuroParlST, GigaST
 Target languages: DE, IT, ZH
 """
 
@@ -27,20 +27,6 @@ def load_europarlst_s2tt(target_lang: str, split: str = "train"):
     return ds.map(_format)
 
 
-def load_covost2_s2tt(target_lang: str, split: str = "train"):
-    """Load CoVoST2 for speech translation (EN → target_lang)."""
-    ds = load_dataset(
-        "facebook/covost2", f"en_{target_lang}", split=split, trust_remote_code=True
-    )
-
-    def _format(example):
-        instruction = TASK_PROMPTS["s2tt"][target_lang]
-        example["messages"] = format_chat_messages(instruction, example["translation"])
-        return example
-
-    return ds.map(_format)
-
-
 def load_s2tt_dataset(dataset_name: str, target_lang: str, split: str = "train"):
     """Load a speech translation dataset by name and target language."""
     if dataset_name == "gigast":
@@ -49,7 +35,6 @@ def load_s2tt_dataset(dataset_name: str, target_lang: str, split: str = "train")
 
     loaders = {
         "europarlst": load_europarlst_s2tt,
-        "covost2": load_covost2_s2tt,
     }
     if dataset_name not in loaders:
         raise ValueError(

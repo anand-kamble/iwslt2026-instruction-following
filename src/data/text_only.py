@@ -39,8 +39,11 @@ def load_mt_europarlst(target_lang: str, split: str = "train"):
 
     def _format(example):
         instruction = TASK_PROMPTS["s2tt"][target_lang]
+        en_text = example["transcriptions"]["en"]
         target_text = example["transcriptions"][target_lang]
-        example["messages"] = format_text_only_messages(instruction, target_text)
+        # Include English source so the model learns translation, not just generation
+        full_instruction = f"{instruction}\n\n{en_text}"
+        example["messages"] = format_text_only_messages(full_instruction, target_text)
         return example
 
     ds = ds.map(_format, num_proc=num_proc)
@@ -51,6 +54,7 @@ def load_mt_gigast(target_lang: str, split: str = "train"):
     """Load GigaST text-only MT pairs from local translation TSV files.
 
     Does NOT load audio — reads TSV translations directly.
+    Loads English transcriptions from GigaST en/ TSV for source text.
     """
     from src.data.gigast import _load_translations
 
@@ -59,12 +63,20 @@ def load_mt_gigast(target_lang: str, split: str = "train"):
 
     translations = _load_translations(target_lang, split)
 
+    # Try to load English transcriptions for source text
+    try:
+        en_transcriptions = _load_translations("en", split)
+    except FileNotFoundError:
+        en_transcriptions = {}
+
     # Format each translation pair as text-only chat
     formatted = []
     instruction = TASK_PROMPTS["s2tt"][target_lang]
     for utt_id, translation in translations.items():
+        en_text = en_transcriptions.get(utt_id, "")
+        full_instruction = f"{instruction}\n\n{en_text}" if en_text else instruction
         formatted.append({
-            "messages": format_text_only_messages(instruction, translation),
+            "messages": format_text_only_messages(full_instruction, translation),
         })
 
     from datasets import Dataset

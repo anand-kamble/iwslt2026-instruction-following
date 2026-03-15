@@ -156,9 +156,13 @@ def load_llm_from_checkpoint(
         if device == "cuda":
             model_kwargs["device_map"] = "auto"
 
-    # Load base model then apply saved LoRA adapters
+    # Load base model then apply saved LoRA adapters (trainable for continued fine-tuning)
     base_model = AutoModelForCausalLM.from_pretrained(base_model_name, **model_kwargs)
-    model = PeftModel.from_pretrained(base_model, checkpoint_dir)
+    model = PeftModel.from_pretrained(base_model, checkpoint_dir, is_trainable=True)
+
+    # Move to device if not already placed (device_map handles CUDA, manual for MPS/CPU)
+    if not use_quantization and device != "cuda":
+        model = model.to(device)
 
     # Resize embeddings if tokenizer has extra tokens (e.g., <|speech|>)
     if len(tokenizer) > model.config.vocab_size:

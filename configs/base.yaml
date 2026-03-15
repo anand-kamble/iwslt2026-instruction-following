@@ -26,7 +26,7 @@ training:
   logging_steps: 50
   save_steps: 500
   eval_steps: 500
-  downsample_factor: 5
+  downsample_factor: 3
 
 paths:
   data_dir: ./data

@@ -40,14 +40,14 @@ TASK_PROMPTS = {
         "zh": "将英文内容翻译成中文。",
     },
     "sqa": {
-        "en": "Answer the following question given the English content: {QUESTION}",
-        "de": "Beantworte die folgende Frage basierend auf dem englischen Inhalt: {QUESTION}",
-        "it": "Rispondi alla seguente domanda dato il contenuto inglese: {QUESTION}",
-        "zh": "根据所给的英文内容，回答以下问题： {QUESTION}",
+        "en": "Answer the following question concisely given the English content: {QUESTION}",
+        "de": "Beantworte die folgende Frage kurz und bündig basierend auf dem englischen Inhalt: {QUESTION}",
+        "it": "Rispondi in modo conciso alla seguente domanda dato il contenuto inglese: {QUESTION}",
+        "zh": "根据所给的英文内容，简要回答以下问题： {QUESTION}",
     },
     "s2tsum": {
         "en": "Summarize the English content in an abstract of approximately 200 words.",
-        "de": "Fasse den englischen Inhalt in einem Abstract mit maximal 200 Wörtern zusammen.",
+        "de": "Fasse den englischen Inhalt in einem Abstract mit ungefähr 200 Wörtern zusammen.",
         "it": "Riassumi il contenuto inglese in un abstract di circa 200 parole.",
         "zh": "用400个字左右概括所给的英语内容。",
     },
@@ -75,9 +75,9 @@ def format_text_only_messages(instruction: str, response: str | None = None) -> 
     """Format instruction and response as ChatML messages WITHOUT speech placeholder.
 
     Used for Stage 2 text-only LoRA training.
+    No system prompt — matches MCIF evaluation and Qwen3 defaults.
     """
     messages = [
-        {"role": "system", "content": "You are a helpful assistant that follows instructions."},
         {"role": "user", "content": instruction},
     ]
     if response is not None:
@@ -88,10 +88,10 @@ def format_text_only_messages(instruction: str, response: str | None = None) -> 
 def format_chat_messages(instruction: str, response: str | None = None) -> list[dict]:
     """Format instruction and response as ChatML messages.
 
-    The instruction should already contain SPEECH_PLACEHOLDER where audio goes.
+    The speech placeholder is prepended to the user message.
+    No system prompt — matches MCIF evaluation and Qwen3 defaults.
     """
     messages = [
-        {"role": "system", "content": "You are a helpful assistant that processes speech and follows instructions."},
         {"role": "user", "content": f"{SPEECH_PLACEHOLDER}\n{instruction}"},
     ]
     if response is not None:

@@ -28,6 +28,9 @@ def load_europarlst_asr(split: str = "train", max_samples: int = None):
     When max_samples is set, uses streaming to avoid downloading the full
     ~100GB dataset — only fetches what's needed.
 
+    Audio is resampled to 16kHz during collection to reduce memory
+    (48kHz → 16kHz = 3x smaller arrays).
+
     Args:
         max_samples: Max English samples to collect. None = full dataset
                      (requires full download, ~100GB cached).
@@ -35,6 +38,11 @@ def load_europarlst_asr(split: str = "train", max_samples: int = None):
     from datasets import Dataset as HFDataset
 
     if max_samples is not None:
+        import torch
+        import torchaudio
+
+        resampler = torchaudio.transforms.Resample(48000, 16000)
+
         # Streaming mode: collect N English samples without full download
         print(f"Streaming EuroParlST — collecting {max_samples} English samples...")
         ds_stream = load_dataset("CLAPv2/Europarl-st", split=split, streaming=True)
@@ -46,10 +54,17 @@ def load_europarlst_asr(split: str = "train", max_samples: int = None):
 
             audio_decoder = sample["audio"]
             samples = audio_decoder.get_all_samples()
+            audio_array = samples.data.squeeze(0)
+            sr = int(samples.sample_rate)
+
+            # Resample to 16kHz immediately to save memory (3x smaller)
+            if sr != 16000:
+                audio_array = resampler(audio_array.unsqueeze(0)).squeeze(0)
+                sr = 16000
 
             collected.append({
-                "audio_array": samples.data.squeeze(0).numpy(),
-                "sampling_rate": int(samples.sample_rate),
+                "audio_array": audio_array.numpy(),
+                "sampling_rate": sr,
                 "text": sample["text"],
                 "messages": format_chat_messages(
                     TASK_PROMPTS["asr"]["en"],
