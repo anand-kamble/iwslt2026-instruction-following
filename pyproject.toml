@@ -17,6 +17,7 @@ dependencies = [
     "mcif-bench",
     "soundfile",
     "ms-swift>=4.0,<5.0",
+    "setuptools<81",
 ]
 
 [project.optional-dependencies]
