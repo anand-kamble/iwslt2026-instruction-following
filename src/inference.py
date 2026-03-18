@@ -59,14 +59,14 @@ def run_inference(
     text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     text_inputs = tokenizer(text, return_tensors="pt").to(model.llm.device)
 
-    # Generate
+    # Generate (greedy decoding for deterministic output)
     output_ids = model.generate(
         input_features=audio_inputs["input_features"],
         input_features_attention_mask=audio_inputs["attention_mask"],
         input_ids=text_inputs["input_ids"],
         attention_mask=text_inputs["attention_mask"],
         max_new_tokens=max_new_tokens,
-        temperature=0.1,
+        do_sample=False,
         repetition_penalty=1.1,
     )
 

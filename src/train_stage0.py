@@ -123,10 +123,11 @@ def main():
 
     dataloader = DataLoader(
         dataset,
-        batch_size=training_config.get("batch_size", 16),
+        batch_size=training_config.get("batch_size", 64),
         shuffle=True,
         collate_fn=collate_alignment,
-        num_workers=0,
+        num_workers=4,
+        pin_memory=(device == "cuda"),
     )
 
     # Build projector only — no LLM needed
@@ -141,7 +142,7 @@ def main():
     projector_path = os.path.join(output_dir, "projector.pt")
     if os.path.exists(projector_path) and training_config.get("resume", False):
         print(f"Resuming from {projector_path}")
-        projector.load_state_dict(torch.load(projector_path, map_location=device))
+        projector.load_state_dict(torch.load(projector_path, map_location=device, weights_only=True))
 
     total_params = sum(p.numel() for p in projector.parameters() if p.requires_grad)
     print(f"Projector trainable params: {total_params:,}")
@@ -155,6 +156,14 @@ def main():
     num_epochs = training_config.get("num_epochs", 10)
     log_steps = training_config.get("logging_steps", 10)
     save_steps = training_config.get("save_steps", 100)
+
+    # Enable tf32 on CUDA for faster matmuls
+    if device == "cuda":
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+
+    use_amp = device == "cuda"
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp) if use_amp else None
 
     # Training loop
     global_step = 0
@@ -171,16 +180,24 @@ def main():
             speech_len = batch["speech_lengths"]
             text_len = batch["text_lengths"]
 
-            # Forward: projector maps speech features → LLM embedding space
-            projected = projector(speech)  # (B, T, llm_dim)
+            with torch.amp.autocast("cuda", enabled=use_amp):
+                # Forward: projector maps speech features → LLM embedding space
+                projected = projector(speech)  # (B, T, llm_dim)
 
-            # MSE loss: projected speech should match text embeddings
-            loss = compute_alignment_loss(projected, text_emb, speech_len, text_len)
+                # MSE loss: projected speech should match text embeddings
+                loss = compute_alignment_loss(projected, text_emb, speech_len, text_len)
 
             optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(projector.parameters(), 1.0)
-            optimizer.step()
+            if scaler is not None:
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(projector.parameters(), 1.0)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(projector.parameters(), 1.0)
+                optimizer.step()
 
             epoch_loss += loss.item()
             num_batches += 1

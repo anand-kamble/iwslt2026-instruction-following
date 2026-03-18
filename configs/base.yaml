@@ -1,4 +1,5 @@
 # Base configuration — shared across all tasks
+# Optimized for H200 GPU (80GB HBM3e, bf16, tf32)
 model:
   sfm: facebook/seamless-m4t-v2-large
   llm: Qwen/Qwen3-4B-Instruct-2507
@@ -9,10 +10,9 @@ hub:
 
 training:
   seed: 42
-  fp16: auto  # auto-selects: bf16 on CUDA, fp16 on MPS/CPU
   gradient_checkpointing: true
   load_in_4bit: false
-  load_in_8bit: false  # only used on CUDA with bitsandbytes
+  load_in_8bit: false
   no_lora: false
   text_only: false
   projector_type: transformer
@@ -20,13 +20,14 @@ training:
   lora_r: 16
   lora_alpha: 16
   gradient_accumulation_steps: 4
-  optim: adamw_torch
+  optim: adamw_torch_fused
   lr_scheduler_type: cosine
-  warmup_steps: 100
+  warmup_ratio: 0.05
   logging_steps: 50
   save_steps: 500
   eval_steps: 500
   downsample_factor: 3
+  dataloader_num_workers: 4
 
 paths:
   data_dir: ./data

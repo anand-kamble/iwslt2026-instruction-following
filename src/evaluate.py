@@ -51,7 +51,7 @@ def load_checkpoint(checkpoint_dir: str, config: dict = None, device: str = None
         device=device,
     )
     projector_path = os.path.join(checkpoint_dir, "projector.pt")
-    projector.load_state_dict(torch.load(projector_path, map_location=device))
+    projector.load_state_dict(torch.load(projector_path, map_location=device, weights_only=True))
     projector.eval()
 
     model = SpeechLLM(speech_encoder, projector, llm, tokenizer)
@@ -99,14 +99,14 @@ def run_inference_on_mcif(model, processor, tokenizer, task: str, language: str,
         text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         text_inputs = tokenizer(text, return_tensors="pt").to(model.llm.device)
 
-        # Generate
+        # Generate (greedy decoding for deterministic eval)
         output_ids = model.generate(
             input_features=audio_inputs["input_features"],
             input_features_attention_mask=audio_inputs["attention_mask"],
             input_ids=text_inputs["input_ids"],
             attention_mask=text_inputs["attention_mask"],
             max_new_tokens=512,
-            temperature=0.1,
+            do_sample=False,
             repetition_penalty=1.1,
         )
 

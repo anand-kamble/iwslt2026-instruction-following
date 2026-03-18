@@ -1,4 +1,4 @@
-# Speech-to-Text Summarization task configuration
+# Speech-to-Text Summarization task configuration (H200)
 defaults:
   - base
 
@@ -13,6 +13,8 @@ data:
 
 training:
   num_epochs: 5
-  per_device_train_batch_size: 1
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
   learning_rate: 1e-5
+  warmup_ratio: 0.05
   max_seq_length: 8192

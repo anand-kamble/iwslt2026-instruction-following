@@ -406,6 +406,58 @@ class TestTransformerProjector:
         assert 35_000_000 < total < 45_000_000  # ~39M expected
 
 
+class TestGradientFlow:
+    """Test that gradients flow correctly through the merge + padding."""
+
+    @pytest.mark.slow
+    def test_projector_receives_gradients(self):
+        """Projector must receive non-zero gradients through the LLM."""
+        model, tokenizer = _build_test_model()
+        model.train()
+
+        # Freeze everything except projector (like Stage 1)
+        for param in model.speech_encoder.parameters():
+            param.requires_grad = False
+        for param in model.llm.parameters():
+            param.requires_grad = False
+        for param in model.projector.parameters():
+            param.requires_grad = True
+
+        from src.data.utils import format_chat_messages
+
+        messages = format_chat_messages("Transcribe the English content.", "Hello world.")
+        text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+        text_inputs = tokenizer(text, return_tensors="pt", padding=True)
+
+        input_features = torch.randn(1, 200, 160)
+        input_features_mask = torch.ones(1, 200, dtype=torch.long)
+
+        labels = text_inputs["input_ids"].clone()
+        prompt_messages = [m for m in messages if m["role"] != "assistant"]
+        prompt_text = tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
+        prompt_len = len(tokenizer(prompt_text)["input_ids"])
+        labels[0, :prompt_len] = -100
+
+        outputs = model(
+            input_features=input_features,
+            input_features_attention_mask=input_features_mask,
+            input_ids=text_inputs["input_ids"],
+            attention_mask=text_inputs["attention_mask"],
+            labels=labels,
+        )
+
+        outputs.loss.backward()
+
+        # Check that projector parameters received gradients
+        has_grad = False
+        for name, param in model.projector.named_parameters():
+            if param.grad is not None and param.grad.abs().sum() > 0:
+                has_grad = True
+                break
+
+        assert has_grad, "Projector received zero gradients — gradient flow is broken"
+
+
 class TestBuildModel:
     """Test build_model factory functions."""
 

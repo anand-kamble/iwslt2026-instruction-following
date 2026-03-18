@@ -33,12 +33,18 @@ def load_speech_encoder(model_name: str = "facebook/seamless-m4t-v2-large", devi
     """Load and freeze the Seamless M4T v2 speech encoder.
 
     Returns the speech encoder module and the audio processor.
+    Loads in float16 on CUDA for memory efficiency (encoder is frozen anyway).
     """
     if device is None:
         device = get_device()
 
     processor = AutoProcessor.from_pretrained(model_name)
-    full_model = SeamlessM4Tv2Model.from_pretrained(model_name)
+
+    # Load in float16 on CUDA — encoder is frozen, no precision needed
+    load_dtype = torch.float16 if device == "cuda" else torch.float32
+    full_model = SeamlessM4Tv2Model.from_pretrained(
+        model_name, torch_dtype=load_dtype,
+    )
 
     speech_encoder = full_model.speech_encoder
     del full_model
@@ -80,12 +86,16 @@ def load_llm_with_lora(
         "trust_remote_code": True,
     }
 
+    # Enable Flash Attention 2 on CUDA for faster attention
+    if device == "cuda":
+        model_kwargs["attn_implementation"] = "flash_attention_2"
+
     if use_quantization:
         from transformers import BitsAndBytesConfig
         if load_in_4bit:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(
                 load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_compute_dtype=torch.bfloat16,
                 bnb_4bit_quant_type="nf4",
             )
         elif load_in_8bit:
@@ -141,12 +151,16 @@ def load_llm_from_checkpoint(
     use_quantization = (load_in_4bit or load_in_8bit) and device == "cuda"
     model_kwargs = {"trust_remote_code": True}
 
+    # Enable Flash Attention 2 on CUDA
+    if device == "cuda":
+        model_kwargs["attn_implementation"] = "flash_attention_2"
+
     if use_quantization:
         from transformers import BitsAndBytesConfig
         if load_in_4bit:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(
                 load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_compute_dtype=torch.bfloat16,
                 bnb_4bit_quant_type="nf4",
             )
         elif load_in_8bit:
@@ -156,17 +170,17 @@ def load_llm_from_checkpoint(
         if device == "cuda":
             model_kwargs["device_map"] = "auto"
 
-    # Load base model then apply saved LoRA adapters (trainable for continued fine-tuning)
+    # Load base model, resize embeddings BEFORE loading LoRA (to match saved shapes)
     base_model = AutoModelForCausalLM.from_pretrained(base_model_name, **model_kwargs)
+    if len(tokenizer) != base_model.config.vocab_size:
+        base_model.resize_token_embeddings(len(tokenizer))
+
+    # Apply saved LoRA adapters (trainable for continued fine-tuning)
     model = PeftModel.from_pretrained(base_model, checkpoint_dir, is_trainable=True)
 
     # Move to device if not already placed (device_map handles CUDA, manual for MPS/CPU)
     if not use_quantization and device != "cuda":
         model = model.to(device)
-
-    # Resize embeddings if tokenizer has extra tokens (e.g., <|speech|>)
-    if len(tokenizer) > model.config.vocab_size:
-        model.resize_token_embeddings(len(tokenizer))
 
     return model, tokenizer
 
@@ -183,6 +197,9 @@ def build_projector(
     Args:
         projector_type: "transformer" (4-layer Transformer, ~39M params) or
                         "linear" (2-layer MLP, ~5M params, legacy).
+
+    Projector stays in float32 for training stability. The SpeechLLM forward
+    pass casts projector output to the LLM's dtype before merging.
     """
     if device is None:
         device = get_device()

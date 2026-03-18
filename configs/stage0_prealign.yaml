@@ -4,10 +4,10 @@
 
 training:
   projector_type: transformer
-  batch_size: 16
+  batch_size: 64
   learning_rate: 1e-3
   weight_decay: 0.01
-  num_epochs: 3  # 3 is enough — loss converges fast, more epochs = overfitting
+  num_epochs: 10
   logging_steps: 50
   save_steps: 500
   output_dir: outputs/stage0_prealign

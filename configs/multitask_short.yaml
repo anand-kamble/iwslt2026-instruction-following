@@ -1,5 +1,6 @@
 # Multi-task config for SHORT track
 # Tasks: ASR, S2TT, SQA, Surprise (surprise handled via in-context learning)
+# H200 optimized
 defaults:
   - base
 
@@ -33,6 +34,8 @@ sampling:
 
 training:
   num_epochs: 3
-  per_device_train_batch_size: 2
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 2
   learning_rate: 2e-5
+  warmup_ratio: 0.05
   max_seq_length: 4096

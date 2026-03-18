@@ -20,15 +20,16 @@ from src.data.collator import SpeechTextCollator
 
 
 def get_precision_args():
-    """Auto-select precision: bf16 on CUDA, fp32 on MPS/CPU.
+    """Auto-select precision: bf16 on CUDA (H200/A100), fp32 on MPS/CPU.
 
-    MPS does not support bf16, and fp16 with gradient scaling causes
-    'Attempting to unscale FP16 gradients' errors. Use fp32 on MPS —
-    the model is already loaded in float16, so memory is fine.
+    H200 has native bf16 support with excellent throughput.
+    MPS does not support bf16 — use fp32.
     """
     device = get_device()
     if device == "cuda":
-        return {"bf16": True}
+        if torch.cuda.is_bf16_supported():
+            return {"bf16": True}
+        return {"fp16": True}
     # MPS and CPU: no mixed precision (model already in fp16, compute in fp32)
     return {}
 
@@ -143,7 +144,8 @@ def main():
             per_device_train_batch_size=training_config.get("per_device_train_batch_size", 8),
             gradient_accumulation_steps=training_config.get("gradient_accumulation_steps", 1),
             learning_rate=float(training_config.get("learning_rate", 3e-4)),
-            warmup_steps=training_config.get("warmup_steps", 100),
+            warmup_ratio=float(training_config.get("warmup_ratio", 0.05)),
+            warmup_steps=training_config.get("warmup_steps") or 0,
             logging_steps=training_config.get("logging_steps", 50),
             save_steps=training_config.get("save_steps", 500),
             optim=training_config.get("optim", "adamw_torch"),
@@ -155,6 +157,9 @@ def main():
             save_safetensors=False,
             remove_unused_columns=False,
             gradient_checkpointing=training_config.get("gradient_checkpointing", True),
+            dataloader_num_workers=training_config.get("dataloader_num_workers", 4),
+            dataloader_pin_memory=True,
+            tf32=True,
             **get_precision_args(),
         )
 
@@ -213,7 +218,7 @@ def main():
     if args.stage1_checkpoint:
         projector_path = os.path.join(args.stage1_checkpoint, "projector.pt")
         print(f"Loading projector from {projector_path}")
-        state_dict = torch.load(projector_path, map_location="cpu")
+        state_dict = torch.load(projector_path, map_location="cpu", weights_only=True)
         missing, unexpected = projector.load_state_dict(state_dict, strict=False)
         if missing:
             print(f"  Missing keys (randomly initialized): {missing}")
@@ -270,7 +275,8 @@ def main():
         per_device_train_batch_size=training_config.get("per_device_train_batch_size", 2),
         gradient_accumulation_steps=training_config.get("gradient_accumulation_steps", 4),
         learning_rate=float(training_config.get("learning_rate", 2e-5)),
-        warmup_steps=training_config.get("warmup_steps", 100),
+        warmup_ratio=float(training_config.get("warmup_ratio", 0.05)),
+        warmup_steps=training_config.get("warmup_steps", 0),
         logging_steps=training_config.get("logging_steps", 50),
         save_steps=training_config.get("save_steps", 500),
         eval_steps=training_config.get("eval_steps", 500),
@@ -283,6 +289,9 @@ def main():
         save_safetensors=False,  # avoid shared tensor error with tied weights
         gradient_checkpointing=training_config.get("gradient_checkpointing", True),
         remove_unused_columns=False,
+        dataloader_num_workers=training_config.get("dataloader_num_workers", 4),
+        dataloader_pin_memory=True,
+        tf32=True,
         **get_precision_args(),
     )
 
@@ -301,7 +310,6 @@ def main():
     lr_projector = training_config.get("lr_projector")
     lr_lora = training_config.get("lr_lora")
     if lr_projector and lr_lora and not no_lora:
-        original_create_optimizer = trainer.create_optimizer
 
         def create_optimizer_with_param_groups():
             projector_params = list(model.projector.parameters())
@@ -311,11 +319,16 @@ def main():
                 if p.requires_grad and id(p) not in projector_ids
             ]
 
+            # Use fused AdamW on CUDA for better kernel fusion
+            use_fused = get_device() == "cuda"
             from torch.optim import AdamW
-            optimizer = AdamW([
-                {"params": projector_params, "lr": float(lr_projector)},
-                {"params": other_params, "lr": float(lr_lora)},
-            ])
+            optimizer = AdamW(
+                [
+                    {"params": projector_params, "lr": float(lr_projector)},
+                    {"params": other_params, "lr": float(lr_lora)},
+                ],
+                fused=use_fused,
+            )
             trainer.optimizer = optimizer
             return optimizer
 

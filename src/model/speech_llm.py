@@ -8,6 +8,7 @@ During training:
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 # Special token to mark where speech features are inserted in the prompt
 SPEECH_PLACEHOLDER = "<|speech|>"
@@ -90,7 +91,6 @@ class SpeechLLM(nn.Module):
             attention_mask: (batch, text_seq) — text attention mask
             labels: (batch, text_seq) — labels for language modeling loss
         """
-        # Move inputs to model device (MPS/CUDA) if needed
         device = self.device
         if input_features.device != device:
             input_features = input_features.to(device)
@@ -104,17 +104,20 @@ class SpeechLLM(nn.Module):
         speech_features = self.encode_speech(
             input_features, input_features_attention_mask
         )
-        speech_embeds = self.projector(speech_features)  # (B, T', llm_dim)
 
-        # 2. Get text embeddings from LLM
-        text_embeds = self._get_embed_tokens()(input_ids)  # (B, S, llm_dim)
+        # 2. Project to LLM space and cast to LLM dtype
+        target_dtype = self.dtype
+        speech_embeds = self.projector(speech_features).to(target_dtype)
 
-        # 3. Find speech placeholder positions and replace with speech embeddings
+        # 3. Get text embeddings from LLM (already in target_dtype)
+        text_embeds = self._get_embed_tokens()(input_ids)
+
+        # 4. Find speech placeholder positions and replace with speech embeddings
         inputs_embeds, new_attention_mask, new_labels = self._merge_speech_and_text(
             speech_embeds, text_embeds, input_ids, attention_mask, labels
         )
 
-        # 4. Forward through LLM
+        # 5. Forward through LLM
         outputs = self.llm(
             inputs_embeds=inputs_embeds,
             attention_mask=new_attention_mask,
@@ -129,12 +132,20 @@ class SpeechLLM(nn.Module):
 
         For each sample in the batch, find the SPEECH_PLACEHOLDER token(s)
         and replace them with the projected speech embeddings.
+
+        Uses F.pad + torch.stack for proper autograd tracking (no in-place ops
+        on untracked tensors).
         """
         speech_token_id = self.tokenizer.convert_tokens_to_ids(SPEECH_PLACEHOLDER)
+        if speech_token_id == self.tokenizer.unk_token_id:
+            raise RuntimeError(
+                f"{SPEECH_PLACEHOLDER} not in tokenizer vocabulary. "
+                "Call tokenizer.add_tokens([SPEECH_PLACEHOLDER]) first."
+            )
         batch_size = text_embeds.shape[0]
         speech_len = speech_embeds.shape[1]
-        llm_dim = text_embeds.shape[2]
         device = text_embeds.device
+        embed_dtype = text_embeds.dtype
 
         new_embeds_list = []
         new_mask_list = []
@@ -155,10 +166,11 @@ class SpeechLLM(nn.Module):
 
             # Replace first placeholder with speech embeddings, remove the rest
             first_pos = placeholder_indices[0].item()
+            num_placeholders = len(placeholder_indices)
 
             # Parts: [text_before_placeholder] [speech_embeds] [text_after_placeholders]
             before = text_embeds[i, :first_pos]
-            after = text_embeds[i, first_pos + len(placeholder_indices) :]
+            after = text_embeds[i, first_pos + num_placeholders :]
 
             merged = torch.cat([before, speech_embeds[i], after], dim=0)
             new_embeds_list.append(merged)
@@ -166,7 +178,7 @@ class SpeechLLM(nn.Module):
             # Rebuild attention mask
             mask_before = attention_mask[i, :first_pos]
             mask_speech = torch.ones(speech_len, device=device, dtype=attention_mask.dtype)
-            mask_after = attention_mask[i, first_pos + len(placeholder_indices) :]
+            mask_after = attention_mask[i, first_pos + num_placeholders :]
             new_mask_list.append(torch.cat([mask_before, mask_speech, mask_after]))
 
             # Rebuild labels (speech tokens get -100 = ignored)
@@ -175,28 +187,28 @@ class SpeechLLM(nn.Module):
                 labels_speech = torch.full(
                     (speech_len,), -100, device=device, dtype=labels.dtype
                 )
-                labels_after = labels[i, first_pos + len(placeholder_indices) :]
+                labels_after = labels[i, first_pos + num_placeholders :]
                 new_labels_list.append(
                     torch.cat([labels_before, labels_speech, labels_after])
                 )
 
-        # Pad to same length
+        # Pad using F.pad + torch.stack for proper gradient tracking
         max_len = max(e.shape[0] for e in new_embeds_list)
 
-        padded_embeds = torch.zeros(batch_size, max_len, llm_dim, device=device)
-        padded_mask = torch.zeros(batch_size, max_len, device=device, dtype=attention_mask.dtype)
+        padded_embeds = torch.stack([
+            F.pad(e, (0, 0, 0, max_len - e.shape[0])) for e in new_embeds_list
+        ])
+        padded_mask = torch.stack([
+            F.pad(m, (0, max_len - m.shape[0])) for m in new_mask_list
+        ])
         padded_labels = (
-            torch.full((batch_size, max_len), -100, device=device, dtype=torch.long)
-            if labels is not None
+            torch.stack([
+                F.pad(l, (0, max_len - l.shape[0]), value=-100)
+                for l in new_labels_list
+            ])
+            if labels is not None and new_labels_list
             else None
         )
-
-        for i in range(batch_size):
-            seq_len = new_embeds_list[i].shape[0]
-            padded_embeds[i, :seq_len] = new_embeds_list[i]
-            padded_mask[i, :seq_len] = new_mask_list[i]
-            if padded_labels is not None and new_labels_list:
-                padded_labels[i, :seq_len] = new_labels_list[i]
 
         return padded_embeds, padded_mask, padded_labels
 
@@ -204,7 +216,7 @@ class SpeechLLM(nn.Module):
     def generate(self, input_features, input_features_attention_mask, input_ids, attention_mask, **generate_kwargs):
         """Generate text from speech + instruction input."""
         speech_features = self.encode_speech(input_features, input_features_attention_mask)
-        speech_embeds = self.projector(speech_features)
+        speech_embeds = self.projector(speech_features).to(self.dtype)
 
         text_embeds = self._get_embed_tokens()(input_ids)
 

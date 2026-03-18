@@ -31,6 +31,9 @@ class SpeechTextCollator:
     max_seq_length: int = 4096
     text_only: bool = False
 
+    def __post_init__(self):
+        self._resamplers = {}
+
     def __call__(self, features: list[dict]) -> dict:
         batch = {}
 
@@ -64,13 +67,15 @@ class SpeechTextCollator:
                         sr = 16000
 
                     if sr != 16000:
+                        if sr not in self._resamplers:
+                            self._resamplers[sr] = torchaudio.transforms.Resample(sr, 16000)
                         waveform = torch.tensor(audio).unsqueeze(0)
-                        audio = torchaudio.transforms.Resample(sr, 16000)(waveform).squeeze(0).numpy()
+                        audio = self._resamplers[sr](waveform).squeeze(0).numpy()
 
                     audios.append(audio)
 
                 audio_inputs = self.processor(
-                    audio=audios,
+                    audios=audios,
                     sampling_rate=16000,
                     return_tensors="pt",
                     padding=True,

@@ -37,10 +37,9 @@ def load_achap_dataset(split: str = "train", language: str = "en", use_audio: bo
         # Format: [CSTART] Title [CEND] section text...
         response = example.get("target_text_ref", "")
 
-        if not response:
-            return None
+        if response:
+            example["messages"] = format_chat_messages(instruction, response)
 
-        example["messages"] = format_chat_messages(instruction, response)
         return example
 
     ds = ds.map(_format)

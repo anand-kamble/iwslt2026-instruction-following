@@ -1,4 +1,5 @@
 # Stage 2: Text-only LoRA pre-training (MT + SQA, no audio)
+# H200: larger batch, more steps for convergence
 defaults:
   - base
 
@@ -15,12 +16,13 @@ data:
 training:
   text_only: true
   gradient_checkpointing: false
-  num_epochs: 1
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 8
+  num_epochs: 2
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 2
   learning_rate: 3e-4
   downsample_factor: 3
-  max_steps: 500  # brief text LoRA training (NAVER's Stage B was short)
+  max_steps: 2000
+  warmup_ratio: 0.05
   logging_steps: 10
-  save_steps: 200
+  save_steps: 500
   logging_dir: ./logs/stage2
