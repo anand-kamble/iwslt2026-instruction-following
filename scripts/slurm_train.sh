@@ -32,6 +32,9 @@ HF_REPO="anand-kamble/iwslt2026-stage3"
 START_STAGE="${START_STAGE:-0}"
 SKIP_STAGE0="${SKIP_STAGE0:-0}"
 
+# Wandb — disable artifact/model uploads, only log metrics
+export WANDB_LOG_MODEL=false
+
 STAGE0_DIR="outputs/stage0_prealign"
 STAGE1_DIR="outputs/stage1_asr"
 STAGE2_DIR="outputs/stage2_text_lora"

@@ -8,6 +8,10 @@ hub:
   organization: anand-kamble
   push_to_hub: true
 
+wandb:
+  project: iwslt2026
+  entity: anand-kamble
+
 training:
   seed: 42
   gradient_checkpointing: true

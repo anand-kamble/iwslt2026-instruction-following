@@ -106,6 +106,19 @@ def main():
     print(f"Task: {config['task']} | Stage: {stage} | Text-only: {text_only} | No-LoRA: {no_lora}")
     print(f"Output: {output_dir}")
 
+    # Setup wandb if configured
+    wandb_config = config.get("wandb", {})
+    if wandb_config.get("project"):
+        os.environ.setdefault("WANDB_PROJECT", wandb_config["project"])
+        if wandb_config.get("entity"):
+            os.environ.setdefault("WANDB_ENTITY", wandb_config["entity"])
+        os.environ["WANDB_LOG_MODEL"] = "false"
+        report_to = "wandb"
+        run_name = task_label
+    else:
+        report_to = "tensorboard"
+        run_name = None
+
     # ===== Stage 2: Text-only LoRA training (no audio) =====
     if text_only:
         print("=== Stage 2: Text-only LoRA training ===")
@@ -139,6 +152,7 @@ def main():
 
         training_args = TrainingArguments(
             output_dir=output_dir,
+            run_name=run_name,
             num_train_epochs=num_epochs,
             max_steps=max_steps,
             per_device_train_batch_size=training_config.get("per_device_train_batch_size", 8),
@@ -151,7 +165,7 @@ def main():
             optim=training_config.get("optim", "adamw_torch"),
             lr_scheduler_type=training_config.get("lr_scheduler_type", "cosine"),
             seed=training_config.get("seed", 42),
-            report_to="tensorboard",
+            report_to=report_to,
             logging_dir=training_config.get("logging_dir", os.path.join(output_dir, "logs")),
             save_total_limit=3,
             save_safetensors=False,
@@ -270,20 +284,21 @@ def main():
 
     training_args = TrainingArguments(
         output_dir=output_dir,
+        run_name=run_name,
         num_train_epochs=num_epochs,
         max_steps=max_steps,
         per_device_train_batch_size=training_config.get("per_device_train_batch_size", 2),
         gradient_accumulation_steps=training_config.get("gradient_accumulation_steps", 4),
         learning_rate=float(training_config.get("learning_rate", 2e-5)),
         warmup_ratio=float(training_config.get("warmup_ratio", 0.05)),
-        warmup_steps=training_config.get("warmup_steps", 0),
+        warmup_steps=training_config.get("warmup_steps") or 0,
         logging_steps=training_config.get("logging_steps", 50),
         save_steps=training_config.get("save_steps", 500),
         eval_steps=training_config.get("eval_steps", 500),
         optim=training_config.get("optim", "adamw_torch"),
         lr_scheduler_type=training_config.get("lr_scheduler_type", "cosine"),
         seed=training_config.get("seed", 42),
-        report_to="tensorboard",
+        report_to=report_to,
         logging_dir=training_config.get("logging_dir", os.path.join(output_dir, "logs")),
         save_total_limit=3,
         save_safetensors=False,  # avoid shared tensor error with tied weights
