@@ -141,32 +141,45 @@ def _load_translated_sqa_text_only(language: str):
 def load_text_only_datasets(config: dict):
     """Load all text-only datasets for Stage 2.
 
-    Returns a list of datasets.
+    Returns a list of datasets.  Respects data.max_samples if set.
     """
     datasets_list = []
     data_names = config.get("data", {}).get("train", [])
+    max_samples = config.get("data", {}).get("max_samples")
 
     for name in data_names:
         if name == "mt_europarlst":
             for lang in ["de", "it"]:
                 try:
-                    datasets_list.append(load_mt_europarlst(lang))
+                    ds = load_mt_europarlst(lang)
+                    if max_samples and len(ds) > max_samples:
+                        ds = ds.select(range(max_samples))
+                    datasets_list.append(ds)
                 except (ValueError, FileNotFoundError) as e:
                     print(f"Skipping MT EuroParlST {lang}: {e}")
         elif name == "mt_gigast":
             for lang in ["de", "zh"]:
                 try:
-                    datasets_list.append(load_mt_gigast(lang))
+                    ds = load_mt_gigast(lang)
+                    if max_samples and len(ds) > max_samples:
+                        ds = ds.select(range(max_samples))
+                    datasets_list.append(ds)
                 except (ValueError, FileNotFoundError) as e:
                     print(f"Skipping MT GigaST {lang}: {e}")
         elif name == "sqa_translated":
             for lang in ["de", "it", "zh"]:
                 try:
-                    datasets_list.append(load_sqa_text_only("train", lang))
+                    ds = load_sqa_text_only("train", lang)
+                    if max_samples and len(ds) > max_samples:
+                        ds = ds.select(range(max_samples))
+                    datasets_list.append(ds)
                 except (ValueError, FileNotFoundError) as e:
                     print(f"Skipping SQA translated {lang}: {e}")
         elif name == "sqa_english":
-            datasets_list.append(load_sqa_text_only("train", "en"))
+            ds = load_sqa_text_only("train", "en")
+            if max_samples and len(ds) > max_samples:
+                ds = ds.select(range(max_samples))
+            datasets_list.append(ds)
         else:
             print(f"Unknown text-only dataset: {name}")
 
