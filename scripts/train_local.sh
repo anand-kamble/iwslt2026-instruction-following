@@ -23,6 +23,14 @@ ALIGNMENT_DATA="data/alignments/local_alignment_data.pt"
 
 export WANDB_MODE=disabled
 
+# Ensure flash-attn is installed if running on CUDA
+if python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+    if ! python -c "import flash_attn" 2>/dev/null; then
+        echo "Installing flash-attn..."
+        pip install flash-attn --no-build-isolation
+    fi
+fi
+
 echo "============================================================"
 echo "IWSLT 2026 Local Training Pipeline (20 samples)"
 echo "============================================================"

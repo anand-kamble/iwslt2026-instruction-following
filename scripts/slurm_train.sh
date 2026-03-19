@@ -68,6 +68,12 @@ fi
 source .venv/bin/activate
 mkdir -p logs
 
+# Ensure flash-attn is installed (required for Flash Attention 2 on H200)
+if ! python -c "import flash_attn" 2>/dev/null; then
+    echo "Installing flash-attn..."
+    pip install flash-attn --no-build-isolation
+fi
+
 # ── Failure trap ─────────────────────────────────────────────────────────────
 _CURRENT_STAGE="setup"
 cleanup() {
