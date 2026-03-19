@@ -11,6 +11,8 @@ Uses Qwen3-0.6B (tiny) + mock speech encoder for speed.
 Usage:
     uv run python scripts/smoke_pipeline.py
     uv run python scripts/smoke_pipeline.py --samples 50 --steps 10
+    uv run python scripts/smoke_pipeline.py --wandb              # log to wandb
+    WANDB_PROJECT=iwslt2026 uv run python scripts/smoke_pipeline.py --wandb
 """
 
 import argparse
@@ -95,7 +97,7 @@ def make_dataset(n, text_only=False):
     return Dataset.from_list(records)
 
 
-def run_stage1(n_samples, n_steps, output_dir, llm_name):
+def run_stage1(n_samples, n_steps, output_dir, llm_name, report_to="none"):
     """Stage 1: Projector-only alignment (LLM frozen)."""
     print(f"\n{'='*60}")
     print(f"STAGE 1: Projector alignment ({n_samples} samples, {n_steps} steps)")
@@ -132,17 +134,17 @@ def run_stage1(n_samples, n_steps, output_dir, llm_name):
 
     training_args = TrainingArguments(
         output_dir=output_dir, max_steps=n_steps,
+        run_name="smoke_stage1" if report_to == "wandb" else None,
         per_device_train_batch_size=4, gradient_accumulation_steps=1,
         learning_rate=5e-4, warmup_ratio=0.1,
         logging_steps=max(1, n_steps // 5), save_strategy="no",
-        report_to="none", remove_unused_columns=False,
+        report_to=report_to, remove_unused_columns=False,
         use_cpu=True, gradient_checkpointing=False,
     )
 
     trainer = Trainer(model=model, args=training_args,
                       train_dataset=dataset, data_collator=collator)
 
-    # Capture loss
     result = trainer.train()
     final_loss = result.training_loss
 
@@ -165,7 +167,7 @@ def run_stage1(n_samples, n_steps, output_dir, llm_name):
     return final_loss
 
 
-def run_stage2(n_samples, n_steps, output_dir, llm_name):
+def run_stage2(n_samples, n_steps, output_dir, llm_name, report_to="none"):
     """Stage 2: Text-only LoRA training."""
     print(f"\n{'='*60}")
     print(f"STAGE 2: Text-only LoRA ({n_samples} samples, {n_steps} steps)")
@@ -190,10 +192,11 @@ def run_stage2(n_samples, n_steps, output_dir, llm_name):
 
     training_args = TrainingArguments(
         output_dir=output_dir, max_steps=n_steps,
+        run_name="smoke_stage2" if report_to == "wandb" else None,
         per_device_train_batch_size=4, gradient_accumulation_steps=1,
         learning_rate=3e-4, warmup_ratio=0.1,
         logging_steps=max(1, n_steps // 5), save_strategy="no",
-        report_to="none", remove_unused_columns=False,
+        report_to=report_to, remove_unused_columns=False,
         use_cpu=True,
     )
 
@@ -215,7 +218,7 @@ def run_stage2(n_samples, n_steps, output_dir, llm_name):
     return final_loss
 
 
-def run_stage3(n_samples, n_steps, output_dir, llm_name, stage1_dir, stage2_dir):
+def run_stage3(n_samples, n_steps, output_dir, llm_name, stage1_dir, stage2_dir, report_to="none"):
     """Stage 3: Multimodal merge (projector + LoRA, both trainable)."""
     print(f"\n{'='*60}")
     print(f"STAGE 3: Multimodal merge ({n_samples} samples, {n_steps} steps)")
@@ -258,10 +261,11 @@ def run_stage3(n_samples, n_steps, output_dir, llm_name, stage1_dir, stage2_dir)
 
     training_args = TrainingArguments(
         output_dir=output_dir, max_steps=n_steps,
+        run_name="smoke_stage3" if report_to == "wandb" else None,
         per_device_train_batch_size=4, gradient_accumulation_steps=2,
         learning_rate=1e-4, warmup_ratio=0.1,
         logging_steps=max(1, n_steps // 5), save_strategy="no",
-        report_to="none", remove_unused_columns=False,
+        report_to=report_to, remove_unused_columns=False,
         use_cpu=True, gradient_checkpointing=False,
     )
 
@@ -357,6 +361,7 @@ def main():
     parser.add_argument("--samples", type=int, default=100, help="Samples per stage")
     parser.add_argument("--steps", type=int, default=20, help="Training steps per stage")
     parser.add_argument("--keep", action="store_true", help="Keep output files after test")
+    parser.add_argument("--wandb", action="store_true", help="Log to wandb (set WANDB_PROJECT)")
     args = parser.parse_args()
 
     base_dir = "/tmp/iwslt_smoke_pipeline"
@@ -365,13 +370,20 @@ def main():
     stage3_dir = os.path.join(base_dir, "stage3")
     llm_name = "Qwen/Qwen3-0.6B"
 
+    report_to = "none"
+    if args.wandb:
+        os.environ.setdefault("WANDB_PROJECT", "iwslt2026")
+        os.environ["WANDB_LOG_MODEL"] = "false"
+        os.environ["WANDB_WATCH"] = "false"
+        report_to = "wandb"
+
     print(f"Pipeline smoke test: {args.samples} samples, {args.steps} steps/stage")
     print(f"Output: {base_dir}")
     start = time.time()
 
-    loss1 = run_stage1(args.samples, args.steps, stage1_dir, llm_name)
-    loss2 = run_stage2(args.samples, args.steps, stage2_dir, llm_name)
-    loss3 = run_stage3(args.samples, args.steps, stage3_dir, llm_name, stage1_dir, stage2_dir)
+    loss1 = run_stage1(args.samples, args.steps, stage1_dir, llm_name, report_to)
+    loss2 = run_stage2(args.samples, args.steps, stage2_dir, llm_name, report_to)
+    loss3 = run_stage3(args.samples, args.steps, stage3_dir, llm_name, stage1_dir, stage2_dir, report_to)
     run_inference(stage3_dir, llm_name)
 
     elapsed = time.time() - start
