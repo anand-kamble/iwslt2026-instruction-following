@@ -1,0 +1,13 @@
+# Local Stage 0: MSE pre-alignment with 20 samples
+defaults:
+  - base
+
+training:
+  projector_type: transformer
+  batch_size: 4
+  learning_rate: 1e-3
+  weight_decay: 0.01
+  num_epochs: 2
+  logging_steps: 1
+  save_steps: 9999
+  output_dir: outputs/local_stage0

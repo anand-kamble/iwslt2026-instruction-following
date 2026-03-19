@@ -1,0 +1,32 @@
+# Local Stage 1: Projector alignment with 20 samples
+defaults:
+  - base
+
+task: asr
+language: en
+stage: 1
+
+data:
+  train:
+    - europarlst
+  max_samples: 20
+
+training:
+  no_lora: true
+  downsample_factor: 3
+  num_epochs: 1
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: false
+  learning_rate: 5e-4
+  warmup_ratio: 0.0
+  logging_steps: 1
+  save_steps: 9999
+  dataloader_num_workers: 0
+  optim: adamw_torch
+
+hub:
+  push_to_hub: false
+
+paths:
+  output_dir: ./outputs/local

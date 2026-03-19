@@ -1,55 +1,45 @@
-"""End-to-end smoke tests using synthetic data.
+"""End-to-end smoke tests using real models on CPU.
 
 Tests the full pipeline (model construction, data collation, forward pass)
-without requiring real datasets or GPU. Uses CPU with tiny synthetic inputs.
+without requiring real datasets or GPU. Uses CPU with synthetic audio inputs
+but real speech encoder, projector, and LLM.
 """
 
+import numpy as np
 import torch
 import pytest
 
 
-class MockSpeechEncoder(torch.nn.Module):
-    """Minimal speech encoder that returns random features."""
-
-    def __init__(self, output_dim=1024, output_length=100):
-        super().__init__()
-        self.output_dim = output_dim
-        self.output_length = output_length
-
-    def forward(self, input_features, attention_mask=None, return_dict=True):
-        batch_size = input_features.shape[0]
-        features = torch.randn(batch_size, self.output_length, self.output_dim)
-
-        class Output:
-            def __init__(self, hidden):
-                self.last_hidden_state = hidden
-
-        return Output(features)
+@pytest.fixture(scope="module")
+def real_processor():
+    """Load the real SeamlessM4T processor (cached across all tests in module)."""
+    from transformers import AutoProcessor
+    return AutoProcessor.from_pretrained("facebook/seamless-m4t-v2-large")
 
 
-class MockProcessor:
-    """Minimal audio processor that creates dummy input features."""
+@pytest.fixture(scope="module")
+def real_speech_encoder():
+    """Load the real SeamlessM4T speech encoder on CPU (cached across all tests in module)."""
+    from transformers import SeamlessM4Tv2Model
+    full_model = SeamlessM4Tv2Model.from_pretrained(
+        "facebook/seamless-m4t-v2-large", torch_dtype=torch.float32,
+    )
+    speech_encoder = full_model.speech_encoder
+    del full_model
+    speech_encoder.eval()
+    for param in speech_encoder.parameters():
+        param.requires_grad = False
+    return speech_encoder
 
-    def __call__(self, audios, sampling_rate=16000, return_tensors="pt",
-                 padding=True, return_attention_mask=True):
-        if isinstance(audios, list):
-            batch_size = len(audios)
-        else:
-            batch_size = 1
-        return {
-            "input_features": torch.randn(batch_size, 200, 160),
-            "attention_mask": torch.ones(batch_size, 200, dtype=torch.long),
-        }
 
-
-def _build_test_model():
-    """Build a minimal SpeechLLM for testing on CPU."""
+def _build_test_model(speech_encoder):
+    """Build a minimal SpeechLLM for testing on CPU with the real speech encoder."""
     from transformers import AutoTokenizer, AutoModelForCausalLM
 
     from src.model.adapters import SpeechProjector
     from src.model.speech_llm import SpeechLLM, SPEECH_PLACEHOLDER
 
-    # Use a tiny model for testing
+    # Use a tiny LLM for testing
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
     llm = AutoModelForCausalLM.from_pretrained(
         "Qwen/Qwen3-0.6B", trust_remote_code=True, torch_dtype=torch.float32,
@@ -61,59 +51,44 @@ def _build_test_model():
         llm.resize_token_embeddings(len(tokenizer))
 
     llm_dim = llm.config.hidden_size
-    speech_encoder = MockSpeechEncoder(output_dim=1024, output_length=20)
 
-    # Projector matching the mock encoder → LLM dims
-    projector = SpeechProjector(speech_dim=1024, llm_dim=llm_dim, downsample_factor=1)
-
-    model = SpeechLLM(speech_encoder, projector, llm, tokenizer)
-    return model, tokenizer
-
-
-def _build_test_model_with_downsampling():
-    """Build a SpeechLLM with downsampling enabled."""
-    from transformers import AutoTokenizer, AutoModelForCausalLM
-
-    from src.model.adapters import SpeechProjector
-    from src.model.speech_llm import SpeechLLM, SPEECH_PLACEHOLDER
-
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
-    llm = AutoModelForCausalLM.from_pretrained(
-        "Qwen/Qwen3-0.6B", trust_remote_code=True, torch_dtype=torch.float32,
-    )
-
-    if SPEECH_PLACEHOLDER not in tokenizer.get_vocab():
-        tokenizer.add_tokens([SPEECH_PLACEHOLDER], special_tokens=True)
-        llm.resize_token_embeddings(len(tokenizer))
-
-    llm_dim = llm.config.hidden_size
-    speech_encoder = MockSpeechEncoder(output_dim=1024, output_length=100)
-
-    # Use downsample_factor=5 like production config
+    # Projector: real encoder outputs 1024-dim, downsample to keep sequence manageable
     projector = SpeechProjector(speech_dim=1024, llm_dim=llm_dim, downsample_factor=5)
 
     model = SpeechLLM(speech_encoder, projector, llm, tokenizer)
     return model, tokenizer
 
 
+def _make_audio_inputs(processor, batch_size=1):
+    """Create real processor outputs from synthetic audio waveforms."""
+    # 1-second audio at 16kHz
+    audios = [np.random.randn(16000).astype(np.float32) for _ in range(batch_size)]
+    inputs = processor(
+        audios=audios,
+        sampling_rate=16000,
+        return_tensors="pt",
+        padding=True,
+        return_attention_mask=True,
+    )
+    return inputs["input_features"], inputs["attention_mask"]
+
+
 @pytest.mark.slow
 class TestForwardPass:
-    """Test forward pass through SpeechLLM."""
+    """Test forward pass through SpeechLLM with real encoder."""
 
-    def test_training_forward(self):
+    def test_training_forward(self, real_speech_encoder, real_processor):
         """Forward pass with labels should return a loss."""
-        model, tokenizer = _build_test_model()
+        model, tokenizer = _build_test_model(real_speech_encoder)
         model.eval()
 
-        from src.data.utils import format_chat_messages, SPEECH_PLACEHOLDER
+        from src.data.utils import format_chat_messages
 
         messages = format_chat_messages("Transcribe the English content.", "Hello world.")
         text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
         text_inputs = tokenizer(text, return_tensors="pt", padding=True)
 
-        # Synthetic audio
-        input_features = torch.randn(1, 200, 160)
-        input_features_mask = torch.ones(1, 200, dtype=torch.long)
+        input_features, input_features_mask = _make_audio_inputs(real_processor)
 
         # Build labels (mask prompt, keep response)
         labels = text_inputs["input_ids"].clone()
@@ -135,9 +110,9 @@ class TestForwardPass:
         assert outputs.loss.item() > 0
         assert not torch.isnan(outputs.loss)
 
-    def test_generation(self):
+    def test_generation(self, real_speech_encoder, real_processor):
         """Generate method should produce token IDs."""
-        model, tokenizer = _build_test_model()
+        model, tokenizer = _build_test_model(real_speech_encoder)
         model.eval()
 
         from src.data.utils import format_chat_messages
@@ -146,8 +121,7 @@ class TestForwardPass:
         text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         text_inputs = tokenizer(text, return_tensors="pt")
 
-        input_features = torch.randn(1, 200, 160)
-        input_features_mask = torch.ones(1, 200, dtype=torch.long)
+        input_features, input_features_mask = _make_audio_inputs(real_processor)
 
         output_ids = model.generate(
             input_features=input_features,
@@ -160,9 +134,9 @@ class TestForwardPass:
         assert output_ids.shape[0] == 1
         assert output_ids.shape[1] > 0
 
-    def test_forward_with_downsampling(self):
+    def test_forward_with_downsampling(self, real_speech_encoder, real_processor):
         """Forward pass with downsample_factor=5 should work correctly."""
-        model, tokenizer = _build_test_model_with_downsampling()
+        model, tokenizer = _build_test_model(real_speech_encoder)
         model.eval()
 
         from src.data.utils import format_chat_messages
@@ -171,8 +145,7 @@ class TestForwardPass:
         text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
         text_inputs = tokenizer(text, return_tensors="pt", padding=True)
 
-        input_features = torch.randn(1, 200, 160)
-        input_features_mask = torch.ones(1, 200, dtype=torch.long)
+        input_features, input_features_mask = _make_audio_inputs(real_processor)
 
         labels = text_inputs["input_ids"].clone()
         labels[0, :5] = -100
@@ -189,9 +162,9 @@ class TestForwardPass:
         assert outputs.loss is not None
         assert not torch.isnan(outputs.loss)
 
-    def test_batch_forward(self):
+    def test_batch_forward(self, real_speech_encoder, real_processor):
         """Forward pass with batch_size > 1."""
-        model, tokenizer = _build_test_model()
+        model, tokenizer = _build_test_model(real_speech_encoder)
         model.eval()
 
         from src.data.utils import format_chat_messages
@@ -206,8 +179,7 @@ class TestForwardPass:
         ]
         text_inputs = tokenizer(texts, return_tensors="pt", padding=True)
 
-        input_features = torch.randn(2, 200, 160)
-        input_features_mask = torch.ones(2, 200, dtype=torch.long)
+        input_features, input_features_mask = _make_audio_inputs(real_processor, batch_size=2)
 
         labels = text_inputs["input_ids"].clone()
         labels[:, :5] = -100
@@ -410,9 +382,9 @@ class TestGradientFlow:
     """Test that gradients flow correctly through the merge + padding."""
 
     @pytest.mark.slow
-    def test_projector_receives_gradients(self):
+    def test_projector_receives_gradients(self, real_speech_encoder, real_processor):
         """Projector must receive non-zero gradients through the LLM."""
-        model, tokenizer = _build_test_model()
+        model, tokenizer = _build_test_model(real_speech_encoder)
         model.train()
 
         # Freeze everything except projector (like Stage 1)
@@ -429,8 +401,7 @@ class TestGradientFlow:
         text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
         text_inputs = tokenizer(text, return_tensors="pt", padding=True)
 
-        input_features = torch.randn(1, 200, 160)
-        input_features_mask = torch.ones(1, 200, dtype=torch.long)
+        input_features, input_features_mask = _make_audio_inputs(real_processor)
 
         labels = text_inputs["input_ids"].clone()
         prompt_messages = [m for m in messages if m["role"] != "assistant"]

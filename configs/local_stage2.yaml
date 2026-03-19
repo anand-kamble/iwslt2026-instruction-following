@@ -1,0 +1,31 @@
+# Local Stage 2: Text-only LoRA with 20 samples
+defaults:
+  - base
+
+task: text_lora
+stage: 2
+
+data:
+  train:
+    - mt_europarlst
+  max_samples: 20
+
+training:
+  text_only: true
+  gradient_checkpointing: false
+  num_epochs: 1
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 1
+  learning_rate: 3e-4
+  downsample_factor: 3
+  warmup_ratio: 0.0
+  logging_steps: 1
+  save_steps: 9999
+  dataloader_num_workers: 0
+  optim: adamw_torch
+
+hub:
+  push_to_hub: false
+
+paths:
+  output_dir: ./outputs/local
