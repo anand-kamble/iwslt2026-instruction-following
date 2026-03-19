@@ -27,7 +27,7 @@ export WANDB_MODE=disabled
 if python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
     if ! python -c "import flash_attn" 2>/dev/null; then
         echo "Installing flash-attn..."
-        pip install flash-attn --no-build-isolation
+        pip install wheel && pip install flash-attn --no-build-isolation
     fi
 fi
 
