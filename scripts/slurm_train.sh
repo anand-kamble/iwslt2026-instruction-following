@@ -53,6 +53,8 @@ mkdir -p "$WANDB_DIR"
 export WANDB_MODE="${WANDB_MODE:-online}"
 
 # ── Environment ──────────────────────────────────────────────────────────────
+module load python/3.11.11 cuda/12.8
+
 echo "============================================================"
 echo "IWSLT 2026 Training Pipeline"
 echo "============================================================"
@@ -64,23 +66,7 @@ echo "Date:        $(date)"
 echo "============================================================"
 
 mkdir -p logs
-
-# Activate environment — adjust to your cluster setup
-if [ -d ".venv" ]; then
-    source .venv/bin/activate
-elif command -v uv &>/dev/null; then
-    # uv run handles venv automatically
-    RUN_PREFIX="uv run"
-fi
-RUN_PREFIX="${RUN_PREFIX:-python}"
-
-run() {
-    if [ "$RUN_PREFIX" = "uv run" ]; then
-        uv run "$@"
-    else
-        "$@"
-    fi
-}
+source .venv/bin/activate
 
 # ── Stage 0: Precompute alignments + MSE pre-alignment ──────────────────────
 if [ "$START_STAGE" -le 0 ] && [ "$SKIP_STAGE0" -eq 0 ]; then
@@ -91,7 +77,7 @@ if [ "$START_STAGE" -le 0 ] && [ "$SKIP_STAGE0" -eq 0 ]; then
 
     if [ ! -f "$ALIGNMENT_DATA" ]; then
         echo "Precomputing speech features + text embeddings..."
-        run python scripts/precompute_alignments.py \
+        python scripts/precompute_alignments.py \
             --output_dir data/alignments \
             --max_samples 30000
     else
@@ -99,7 +85,7 @@ if [ "$START_STAGE" -le 0 ] && [ "$SKIP_STAGE0" -eq 0 ]; then
     fi
 
     echo "Training Stage 0 projector (MSE pre-alignment)..."
-    run python src/train_stage0.py \
+    python src/train_stage0.py \
         --config configs/stage0_prealign.yaml \
         --data "$ALIGNMENT_DATA" \
         --output_dir "$STAGE0_DIR"
@@ -124,7 +110,7 @@ if [ "$START_STAGE" -le 1 ]; then
         echo "Warm-starting from Stage 0 projector"
     fi
 
-    run python src/train.py "${STAGE1_ARGS[@]}"
+    python src/train.py "${STAGE1_ARGS[@]}"
     echo "Stage 1 complete: $STAGE1_DIR"
 fi
 
@@ -135,7 +121,7 @@ if [ "$START_STAGE" -le 2 ]; then
     echo "STAGE 2: Text-only LoRA (MT + SQA, no audio)"
     echo "============================================================"
 
-    run python src/train.py \
+    python src/train.py \
         --config configs/stage2_text_lora.yaml
 
     echo "Stage 2 complete: $STAGE2_DIR"
@@ -168,7 +154,7 @@ if [ "$START_STAGE" -le 3 ]; then
         echo "WARNING: No Stage 2 checkpoint found at $STAGE2_DIR"
     fi
 
-    run python src/train.py "${STAGE3_ARGS[@]}"
+    python src/train.py "${STAGE3_ARGS[@]}"
     echo "Stage 3 complete: $STAGE3_DIR"
 fi
 
