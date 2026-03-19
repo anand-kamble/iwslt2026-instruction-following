@@ -32,10 +32,10 @@ def _load_translations(target_lang: str, split: str = "train") -> dict[str, str]
         )
     translations = {}
     with open(tsv_path, newline="", encoding="utf-8") as f:
-        reader = csv.reader(f, delimiter="\t")
-        for row in reader:
-            if len(row) >= 2:
-                translations[row[0]] = row[1]
+        for line in f:
+            parts = line.rstrip("\n").split("\t", 1)
+            if len(parts) == 2:
+                translations[parts[0]] = parts[1]
     return translations
 
 

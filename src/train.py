@@ -356,6 +356,9 @@ def main():
                 if p.requires_grad and id(p) not in projector_ids
             ]
 
+            assert projector_params, "No projector parameters found — is projector frozen?"
+            assert other_params, "No LoRA parameters found — is LoRA disabled?"
+
             # Use fused AdamW on CUDA for better kernel fusion
             use_fused = get_device() == "cuda"
             from torch.optim import AdamW

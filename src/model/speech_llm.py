@@ -31,8 +31,16 @@ class SpeechLLM(nn.Module):
 
     @property
     def dtype(self):
-        """Return dtype of the LLM for Trainer compatibility."""
-        return next(self.llm.parameters()).dtype
+        """Return dtype of the LLM for Trainer compatibility.
+
+        For quantized models, parameters are stored in uint8/int8 but compute
+        happens in the configured compute dtype (bfloat16). Fall back to the
+        first floating-point parameter's dtype.
+        """
+        for p in self.llm.parameters():
+            if p.dtype.is_floating_point:
+                return p.dtype
+        return torch.float32
 
     def gradient_checkpointing_enable(self, **kwargs):
         """Delegate gradient checkpointing to the LLM."""

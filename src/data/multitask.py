@@ -144,7 +144,10 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
             s2tt_datasets = []
             for ds_name in s2tt_config.get("train", []):
                 try:
-                    s2tt_datasets.append(load_s2tt_dataset(ds_name, lang, "train"))
+                    ds = load_s2tt_dataset(ds_name, lang, "train")
+                    if max_samples and len(ds) > max_samples:
+                        ds = ds.select(range(max_samples))
+                    s2tt_datasets.append(ds)
                 except (ValueError, FileNotFoundError) as e:
                     print(f"Skipping S2TT/{ds_name}/{lang}: {e}")
             if s2tt_datasets:
@@ -156,7 +159,10 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
         sqa_config = tasks_config["sqa"]
         for lang in sqa_config.get("languages", ["en"]):
             try:
-                all_datasets[f"sqa_{lang}"] = load_sqa_dataset("train", lang)
+                ds = load_sqa_dataset("train", lang)
+                if max_samples and len(ds) > max_samples:
+                    ds = ds.select(range(max_samples))
+                all_datasets[f"sqa_{lang}"] = ds
             except (ValueError, FileNotFoundError) as e:
                 print(f"Skipping SQA/{lang}: {e}")
 
@@ -166,7 +172,10 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
         s2tsum_config = tasks_config["s2tsum"]
         for lang in s2tsum_config.get("languages", ["en"]):
             try:
-                all_datasets[f"s2tsum_{lang}"] = load_s2tsum_dataset("train", lang)
+                ds = load_s2tsum_dataset("train", lang)
+                if max_samples and len(ds) > max_samples:
+                    ds = ds.select(range(max_samples))
+                all_datasets[f"s2tsum_{lang}"] = ds
             except (ValueError, FileNotFoundError) as e:
                 print(f"Skipping S2TSUM/{lang}: {e}")
 
@@ -176,7 +185,10 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
         achap_config = tasks_config["achap"]
         for lang in achap_config.get("languages", ["en"]):
             try:
-                all_datasets[f"achap_{lang}"] = load_achap_dataset("train", lang)
+                ds = load_achap_dataset("train", lang)
+                if max_samples and len(ds) > max_samples:
+                    ds = ds.select(range(max_samples))
+                all_datasets[f"achap_{lang}"] = ds
             except (ValueError, FileNotFoundError) as e:
                 print(f"Skipping ACHAP/{lang}: {e}")
 
