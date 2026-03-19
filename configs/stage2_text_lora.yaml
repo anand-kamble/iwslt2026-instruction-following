@@ -1,5 +1,5 @@
 # Stage 2: Text-only LoRA pre-training (MT + SQA, no audio)
-# H200: larger batch, more steps for convergence
+# Following NAVER IWSLT 2025: warmup 100 steps, weight_decay 0.1
 defaults:
   - base
 
@@ -16,13 +16,14 @@ data:
 training:
   text_only: true
   gradient_checkpointing: false
-  num_epochs: 2
-  per_device_train_batch_size: 32
-  gradient_accumulation_steps: 1
+  num_epochs: 1
+  per_device_train_batch_size: 10
+  gradient_accumulation_steps: 8
   learning_rate: 3e-4
+  weight_decay: 0.1
   downsample_factor: 3
-  max_steps: 2000
-  warmup_ratio: 0.05
+  warmup_steps: 100
+  warmup_ratio: 0.0
   logging_steps: 10
   save_steps: 500
   logging_dir: ./logs/stage2

@@ -21,7 +21,7 @@ training:
   text_only: false
   projector_type: transformer
   max_seq_length: 4096
-  lora_r: 16
+  lora_r: 8
   lora_alpha: 16
   gradient_accumulation_steps: 4
   optim: adamw_torch_fused
