@@ -44,6 +44,7 @@ STAGE3_DIR="outputs/stage3_multitask"
 ALIGNMENT_DATA="data/alignments/alignment_data.pt"
 
 # ── Wandb ────────────────────────────────────────────────────────────────────
+export WANDB_PROJECT="${WANDB_PROJECT:-iwslt2026}"
 # Store run data on scratch to avoid NFS quota issues
 _SCRATCH="${SCRATCH:-${TMPDIR:-/tmp}}"
 export WANDB_DIR="${WANDB_DIR:-${_SCRATCH}/wandb_${SLURM_JOB_ID:-local}}"
