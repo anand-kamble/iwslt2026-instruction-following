@@ -1,22 +1,27 @@
 #!/bin/bash
-#SBATCH --job-name=iwslt2026
-#SBATCH --partition=gpu
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --gpus=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=128G
-#SBATCH --time=24:00:00
-#SBATCH --output=logs/slurm_%j.out
-#SBATCH --error=logs/slurm_%j.err
+#SBATCH -A atathe2-ic
+#SBATCH -p IllinoisComputes-GPU
+#SBATCH --gres=gpu:H200:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH -t 06:00:00
+#SBATCH -J iwslt2026
+#SBATCH -o logs/%x-%j.out
+#SBATCH -e logs/%x-%j.err
 
 # =============================================================================
 # IWSLT 2026 — Full training pipeline (Stage 0 → 1 → 2 → 3) + HF upload
 #
-# Usage:
+# Submit:
 #   sbatch scripts/slurm_train.sh
-#   sbatch scripts/slurm_train.sh --export=SKIP_STAGE0=1    # skip precompute
-#   sbatch scripts/slurm_train.sh --export=START_STAGE=3    # resume from stage 3
+#
+# Skip Stage 0 / resume from a later stage:
+#   sbatch --export=SKIP_STAGE0=1 scripts/slurm_train.sh
+#   sbatch --export=START_STAGE=3 scripts/slurm_train.sh
+#
+# Interactive GPU shell (for debugging):
+#   srun -A atathe2-ic -p IllinoisComputes-GPU --gres=gpu:H200:1 \
+#        --cpus-per-task=8 --mem=64G -t 01:30:00 --pty bash
 #
 # Outputs:
 #   outputs/stage0_prealign/   — Stage 0 projector
@@ -32,19 +37,19 @@ HF_REPO="anand-kamble/iwslt2026-stage3"
 START_STAGE="${START_STAGE:-0}"
 SKIP_STAGE0="${SKIP_STAGE0:-0}"
 
-# Wandb — store run data on scratch to avoid NFS quota issues
-# Prefers $SCRATCH, falls back to $TMPDIR, then /tmp
-_SCRATCH="${SCRATCH:-${TMPDIR:-/tmp}}"
-export WANDB_DIR="${WANDB_DIR:-${_SCRATCH}/wandb_${SLURM_JOB_ID:-local}}"
-mkdir -p "$WANDB_DIR"
-# Set WANDB_MODE=offline to train without internet, sync later with `wandb sync`
-export WANDB_MODE="${WANDB_MODE:-online}"
-
 STAGE0_DIR="outputs/stage0_prealign"
 STAGE1_DIR="outputs/stage1_asr"
 STAGE2_DIR="outputs/stage2_text_lora"
 STAGE3_DIR="outputs/stage3_multitask"
 ALIGNMENT_DATA="data/alignments/alignment_data.pt"
+
+# ── Wandb ────────────────────────────────────────────────────────────────────
+# Store run data on scratch to avoid NFS quota issues
+_SCRATCH="${SCRATCH:-${TMPDIR:-/tmp}}"
+export WANDB_DIR="${WANDB_DIR:-${_SCRATCH}/wandb_${SLURM_JOB_ID:-local}}"
+mkdir -p "$WANDB_DIR"
+# Set WANDB_MODE=offline to train without internet, sync later with `wandb sync`
+export WANDB_MODE="${WANDB_MODE:-online}"
 
 # ── Environment ──────────────────────────────────────────────────────────────
 echo "============================================================"
