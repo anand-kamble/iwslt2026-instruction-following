@@ -52,10 +52,15 @@ def load_europarlst_asr(split: str = "train", max_samples: int = None):
             if not sample["text"].startswith("A person is saying:"):
                 continue
 
-            audio_decoder = sample["audio"]
-            samples = audio_decoder.get_all_samples()
-            audio_array = samples.data.squeeze(0)
-            sr = int(samples.sample_rate)
+            audio_data = sample["audio"]
+            if isinstance(audio_data, dict):
+                audio_array = torch.tensor(audio_data["array"])
+                sr = audio_data.get("sampling_rate", 16000)
+            else:
+                # Legacy AudioDecoder format
+                decoded = audio_data.get_all_samples()
+                audio_array = decoded.data.squeeze(0)
+                sr = int(decoded.sample_rate)
 
             # Resample to 16kHz immediately to save memory (3x smaller)
             if sr != 16000:
@@ -93,10 +98,14 @@ def load_europarlst_asr(split: str = "train", max_samples: int = None):
     print(f"Found {len(ds)} English samples")
 
     def _format(example):
-        audio_decoder = example["audio"]
-        samples = audio_decoder.get_all_samples()
-        example["audio_array"] = samples.data.squeeze(0).numpy()
-        example["sampling_rate"] = int(samples.sample_rate)
+        audio_data = example["audio"]
+        if isinstance(audio_data, dict):
+            example["audio_array"] = audio_data["array"]
+            example["sampling_rate"] = audio_data.get("sampling_rate", 16000)
+        else:
+            decoded = audio_data.get_all_samples()
+            example["audio_array"] = decoded.data.squeeze(0).numpy()
+            example["sampling_rate"] = int(decoded.sample_rate)
 
         instruction = TASK_PROMPTS["asr"]["en"]
         example["messages"] = format_chat_messages(
