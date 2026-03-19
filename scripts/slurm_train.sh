@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:H200:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-#SBATCH -t 06:00:00
+#SBATCH -t 08:00:00
 #SBATCH -J iwslt2026
 #SBATCH -o logs/%x-%j.out
 #SBATCH -e logs/%x-%j.err
@@ -16,8 +16,14 @@
 #   sbatch scripts/slurm_train.sh
 #
 # Skip Stage 0 / resume from a later stage:
-#   sbatch --export=SKIP_STAGE0=1 scripts/slurm_train.sh
-#   sbatch --export=START_STAGE=3 scripts/slurm_train.sh
+#   sbatch --export=ALL,SKIP_STAGE0=1 scripts/slurm_train.sh
+#   sbatch --export=ALL,START_STAGE=3 scripts/slurm_train.sh
+#
+# Run only one stage:
+#   sbatch --export=ALL,START_STAGE=2,END_STAGE=2 scripts/slurm_train.sh
+#
+# Skip HF upload:
+#   sbatch --export=ALL,SKIP_UPLOAD=1 scripts/slurm_train.sh
 #
 # Interactive GPU shell (for debugging):
 #   srun -A atathe2-ic -p IllinoisComputes-GPU --gres=gpu:H200:1 \
@@ -35,7 +41,9 @@ set -euo pipefail
 # ── Config ───────────────────────────────────────────────────────────────────
 HF_REPO="anand-kamble/iwslt2026-stage3"
 START_STAGE="${START_STAGE:-0}"
+END_STAGE="${END_STAGE:-99}"
 SKIP_STAGE0="${SKIP_STAGE0:-0}"
+SKIP_UPLOAD="${SKIP_UPLOAD:-0}"
 
 STAGE0_DIR="outputs/stage0_prealign"
 STAGE1_DIR="outputs/stage1_asr"
@@ -45,15 +53,44 @@ ALIGNMENT_DATA="data/alignments/alignment_data.pt"
 
 # ── Wandb ────────────────────────────────────────────────────────────────────
 export WANDB_PROJECT="${WANDB_PROJECT:-iwslt2026}"
-# Store run data on scratch to avoid NFS quota issues
 _SCRATCH="${SCRATCH:-${TMPDIR:-/tmp}}"
 export WANDB_DIR="${WANDB_DIR:-${_SCRATCH}/wandb_${SLURM_JOB_ID:-local}}"
 mkdir -p "$WANDB_DIR"
-# Set WANDB_MODE=offline to train without internet, sync later with `wandb sync`
 export WANDB_MODE="${WANDB_MODE:-online}"
 
 # ── Environment ──────────────────────────────────────────────────────────────
 module load python/3.11.11 cuda/12.8
+
+if [ ! -d ".venv" ]; then
+    echo "ERROR: .venv not found. Run: python3 -m venv .venv && source .venv/bin/activate && pip install -e '.[cuda]'"
+    exit 1
+fi
+source .venv/bin/activate
+mkdir -p logs
+
+# ── Failure trap ─────────────────────────────────────────────────────────────
+_CURRENT_STAGE="setup"
+cleanup() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo ""
+        echo "============================================================"
+        echo "PIPELINE FAILED at stage: ${_CURRENT_STAGE}"
+        echo "Exit code: ${exit_code}"
+        echo "Check logs: logs/iwslt2026-${SLURM_JOB_ID:-local}.err"
+        echo "============================================================"
+    fi
+    # Finish any active wandb run
+    python -c "
+try:
+    import wandb
+    if wandb.run is not None:
+        wandb.finish(exit_code=exit_code)
+except Exception:
+    pass
+" 2>/dev/null || true
+}
+trap cleanup EXIT
 
 echo "============================================================"
 echo "IWSLT 2026 Training Pipeline"
@@ -61,15 +98,13 @@ echo "============================================================"
 echo "Job ID:      ${SLURM_JOB_ID:-local}"
 echo "Node:        $(hostname)"
 echo "GPU:         $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
-echo "Start stage: ${START_STAGE}"
+echo "Stages:      ${START_STAGE} → ${END_STAGE}"
 echo "Date:        $(date)"
 echo "============================================================"
 
-mkdir -p logs
-source .venv/bin/activate
-
 # ── Stage 0: Precompute alignments + MSE pre-alignment ──────────────────────
-if [ "$START_STAGE" -le 0 ] && [ "$SKIP_STAGE0" -eq 0 ]; then
+if [ "$START_STAGE" -le 0 ] && [ "$END_STAGE" -ge 0 ] && [ "$SKIP_STAGE0" -eq 0 ]; then
+    _CURRENT_STAGE="stage0"
     echo ""
     echo "============================================================"
     echo "STAGE 0: Precompute alignments + MSE pre-alignment"
@@ -94,7 +129,8 @@ if [ "$START_STAGE" -le 0 ] && [ "$SKIP_STAGE0" -eq 0 ]; then
 fi
 
 # ── Stage 1: Projector alignment on ASR ──────────────────────────────────────
-if [ "$START_STAGE" -le 1 ]; then
+if [ "$START_STAGE" -le 1 ] && [ "$END_STAGE" -ge 1 ]; then
+    _CURRENT_STAGE="stage1"
     echo ""
     echo "============================================================"
     echo "STAGE 1: Projector alignment (ASR, LLM frozen)"
@@ -104,7 +140,6 @@ if [ "$START_STAGE" -le 1 ]; then
         --config configs/stage1_alignment.yaml
     )
 
-    # Load Stage 0 projector if available
     if [ -f "$STAGE0_DIR/projector.pt" ]; then
         STAGE1_ARGS+=(--stage1_checkpoint "$STAGE0_DIR")
         echo "Warm-starting from Stage 0 projector"
@@ -115,7 +150,8 @@ if [ "$START_STAGE" -le 1 ]; then
 fi
 
 # ── Stage 2: Text-only LoRA pre-training ─────────────────────────────────────
-if [ "$START_STAGE" -le 2 ]; then
+if [ "$START_STAGE" -le 2 ] && [ "$END_STAGE" -ge 2 ]; then
+    _CURRENT_STAGE="stage2"
     echo ""
     echo "============================================================"
     echo "STAGE 2: Text-only LoRA (MT + SQA, no audio)"
@@ -128,7 +164,8 @@ if [ "$START_STAGE" -le 2 ]; then
 fi
 
 # ── Stage 3: Multimodal merge ────────────────────────────────────────────────
-if [ "$START_STAGE" -le 3 ]; then
+if [ "$START_STAGE" -le 3 ] && [ "$END_STAGE" -ge 3 ]; then
+    _CURRENT_STAGE="stage3"
     echo ""
     echo "============================================================"
     echo "STAGE 3: Multimodal merge (projector + LoRA)"
@@ -138,7 +175,6 @@ if [ "$START_STAGE" -le 3 ]; then
         --config configs/stage3_multimodal.yaml
     )
 
-    # Load Stage 1 projector
     if [ -d "$STAGE1_DIR" ]; then
         STAGE3_ARGS+=(--stage1_checkpoint "$STAGE1_DIR")
         echo "Loading projector from Stage 1"
@@ -146,7 +182,6 @@ if [ "$START_STAGE" -le 3 ]; then
         echo "WARNING: No Stage 1 checkpoint found at $STAGE1_DIR"
     fi
 
-    # Load Stage 2 LoRA
     if [ -d "$STAGE2_DIR" ]; then
         STAGE3_ARGS+=(--stage2_checkpoint "$STAGE2_DIR")
         echo "Loading LoRA from Stage 2"
@@ -159,20 +194,24 @@ if [ "$START_STAGE" -le 3 ]; then
 fi
 
 # ── Upload to HuggingFace ────────────────────────────────────────────────────
-echo ""
-echo "============================================================"
-echo "Uploading checkpoint to HuggingFace"
-echo "============================================================"
+if [ "$SKIP_UPLOAD" -eq 0 ] && [ "$END_STAGE" -ge 3 ]; then
+    _CURRENT_STAGE="upload"
+    echo ""
+    echo "============================================================"
+    echo "Uploading checkpoint to HuggingFace"
+    echo "============================================================"
 
-if [ -d "$STAGE3_DIR" ]; then
-    echo "Uploading $STAGE3_DIR → hf.co/$HF_REPO"
-    huggingface-cli upload "$HF_REPO" "$STAGE3_DIR" --repo-type model
-    echo "Upload complete: https://huggingface.co/$HF_REPO"
-else
-    echo "ERROR: Stage 3 output not found at $STAGE3_DIR"
-    exit 1
+    if [ -d "$STAGE3_DIR" ]; then
+        echo "Uploading $STAGE3_DIR → hf.co/$HF_REPO"
+        huggingface-cli upload "$HF_REPO" "$STAGE3_DIR" --repo-type model
+        echo "Upload complete: https://huggingface.co/$HF_REPO"
+    else
+        echo "ERROR: Stage 3 output not found at $STAGE3_DIR"
+        exit 1
+    fi
 fi
 
+_CURRENT_STAGE="done"
 echo ""
 echo "============================================================"
 echo "PIPELINE COMPLETE"

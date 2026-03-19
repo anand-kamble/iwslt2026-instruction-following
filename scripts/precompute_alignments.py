@@ -75,7 +75,7 @@ def main():
 
         # Encode
         audio_input = processor(
-            audio=audio_array,
+            audios=audio_array,
             sampling_rate=16000,
             return_tensors="pt",
             return_attention_mask=True,
