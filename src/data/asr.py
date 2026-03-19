@@ -54,7 +54,7 @@ def load_europarlst_asr(split: str = "train", max_samples: int = None):
 
             audio_data = sample["audio"]
             if isinstance(audio_data, dict):
-                audio_array = torch.tensor(audio_data["array"])
+                audio_array = torch.tensor(audio_data["array"], dtype=torch.float32)
                 sr = audio_data.get("sampling_rate", 16000)
             else:
                 # Legacy AudioDecoder format
@@ -100,7 +100,8 @@ def load_europarlst_asr(split: str = "train", max_samples: int = None):
     def _format(example):
         audio_data = example["audio"]
         if isinstance(audio_data, dict):
-            example["audio_array"] = audio_data["array"]
+            import numpy as np
+            example["audio_array"] = np.asarray(audio_data["array"], dtype=np.float32)
             example["sampling_rate"] = audio_data.get("sampling_rate", 16000)
         else:
             decoded = audio_data.get_all_samples()

@@ -75,7 +75,7 @@ class SpeechTextCollator:
                     if sr != 16000:
                         if sr not in self._resamplers:
                             self._resamplers[sr] = torchaudio.transforms.Resample(sr, 16000)
-                        waveform = torch.tensor(audio).unsqueeze(0)
+                        waveform = torch.as_tensor(audio, dtype=torch.float32).unsqueeze(0)
                         audio = self._resamplers[sr](waveform).squeeze(0).numpy()
 
                     audios.append(audio)
