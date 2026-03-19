@@ -37,6 +37,7 @@
 # =============================================================================
 
 set -euo pipefail
+export PYTHONUNBUFFERED=1
 
 # ── Config ───────────────────────────────────────────────────────────────────
 HF_REPO="anand-kamble/iwslt2026-stage3"
@@ -119,8 +120,7 @@ if [ "$START_STAGE" -le 0 ] && [ "$END_STAGE" -ge 0 ] && [ "$SKIP_STAGE0" -eq 0 
     if [ ! -f "$ALIGNMENT_DATA" ]; then
         echo "Precomputing speech features + text embeddings..."
         python scripts/precompute_alignments.py \
-            --output_dir data/alignments \
-            --max_samples 30000
+            --output_dir data/alignments
     else
         echo "Alignment data already exists at $ALIGNMENT_DATA, skipping precompute."
     fi

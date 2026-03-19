@@ -23,70 +23,18 @@ def load_europarlst_asr(split: str = "train", max_samples: int = None):
     """Load EuroParlST for ASR (English transcription).
 
     Uses CLAPv2/Europarl-st which has embedded audio for all languages.
-    Filters for English samples only.
-
-    When max_samples is set, uses streaming to avoid downloading the full
-    ~100GB dataset — only fetches what's needed.
-
-    Audio is resampled to 16kHz during collection to reduce memory
-    (48kHz → 16kHz = 3x smaller arrays).
+    Filters for English samples only. Downloads the full dataset (~100GB,
+    cached after first run) and keeps HF's native audio column to avoid
+    PyArrow int32 overflow on large audio arrays.
 
     Args:
-        max_samples: Max English samples to collect. None = full dataset
-                     (requires full download, ~100GB cached).
+        max_samples: Limit to first N English samples. None = full dataset.
     """
-    from datasets import Dataset as HFDataset
-
-    if max_samples is not None:
-        import torch
-        import torchaudio
-
-        resampler = torchaudio.transforms.Resample(48000, 16000)
-
-        # Streaming mode: collect N English samples without full download
-        print(f"Streaming EuroParlST — collecting {max_samples} English samples...")
-        ds_stream = load_dataset("CLAPv2/Europarl-st", split=split, streaming=True)
-
-        collected = []
-        for sample in ds_stream:
-            if not sample["text"].startswith("A person is saying:"):
-                continue
-
-            audio_data = sample["audio"]
-            if isinstance(audio_data, dict):
-                audio_array = torch.tensor(audio_data["array"], dtype=torch.float32)
-                sr = audio_data.get("sampling_rate", 16000)
-            else:
-                # Legacy AudioDecoder format
-                decoded = audio_data.get_all_samples()
-                audio_array = decoded.data.squeeze(0)
-                sr = int(decoded.sample_rate)
-
-            # Resample to 16kHz immediately to save memory (3x smaller)
-            if sr != 16000:
-                audio_array = resampler(audio_array.unsqueeze(0)).squeeze(0)
-                sr = 16000
-
-            collected.append({
-                "audio_array": audio_array.numpy(),
-                "sampling_rate": sr,
-                "text": sample["text"],
-                "messages": format_chat_messages(
-                    TASK_PROMPTS["asr"]["en"],
-                    _extract_transcription(sample["text"]),
-                ),
-            })
-
-            if len(collected) >= max_samples:
-                break
-
-        print(f"Collected {len(collected)} English samples via streaming")
-        return HFDataset.from_list(collected)
-
-    # Full download mode
     import os
     num_proc = os.cpu_count() or 1
 
+    # Full download — HF manages the Arrow table so no int32 overflow on audio
+    print("Downloading EuroParlST (cached after first run)...")
     ds = load_dataset("CLAPv2/Europarl-st", split=split)
 
     # Text filter is lightweight — safe to parallelize
@@ -97,26 +45,20 @@ def load_europarlst_asr(split: str = "train", max_samples: int = None):
     )
     print(f"Found {len(ds)} English samples")
 
-    def _format(example):
-        audio_data = example["audio"]
-        if isinstance(audio_data, dict):
-            import numpy as np
-            example["audio_array"] = np.asarray(audio_data["array"], dtype=np.float32)
-            example["sampling_rate"] = audio_data.get("sampling_rate", 16000)
-        else:
-            decoded = audio_data.get_all_samples()
-            example["audio_array"] = decoded.data.squeeze(0).numpy()
-            example["sampling_rate"] = int(decoded.sample_rate)
+    if max_samples is not None and len(ds) > max_samples:
+        ds = ds.select(range(max_samples))
+        print(f"Using first {max_samples} samples")
 
+    def _format(example):
         instruction = TASK_PROMPTS["asr"]["en"]
         example["messages"] = format_chat_messages(
             instruction, _extract_transcription(example["text"])
         )
         return example
 
-    # Audio extraction is memory-heavy — single process to avoid OOM
-    print(f"Extracting audio from {len(ds)} samples (single process to save memory)...")
-    ds = ds.map(_format)
+    # Only format text — keep the original "audio" column untouched.
+    # The collator and precompute script handle audio extraction at read time.
+    ds = ds.map(_format, num_proc=num_proc)
     return ds
 
 

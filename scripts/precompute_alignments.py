@@ -65,12 +65,19 @@ def main():
 
     for i in tqdm(range(len(ds)), desc="Extracting speech features"):
         sample = ds[i]
-        audio_array = sample["audio_array"]
-        sr = sample.get("sampling_rate", 48000)
+
+        # Extract audio from HF's native audio dict
+        audio_data = sample["audio"]
+        if isinstance(audio_data, dict):
+            audio_array = audio_data["array"]
+            sr = audio_data.get("sampling_rate", 16000)
+        else:
+            audio_array = audio_data
+            sr = 16000
 
         # Resample to 16kHz
         if sr != 16000:
-            waveform = torch.tensor(audio_array).unsqueeze(0)
+            waveform = torch.tensor(audio_array, dtype=torch.float32).unsqueeze(0)
             audio_array = resampler(waveform).squeeze(0).numpy()
 
         # Encode
