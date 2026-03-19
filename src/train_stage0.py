@@ -25,8 +25,12 @@ import yaml
 from src.model.build_model import build_projector, get_device
 
 
-def _setup_wandb(config: dict):
+_wandb = None  # module-level ref, set by _setup_wandb
+
+
+def _setup_wandb(config: dict) -> bool:
     """Initialize wandb for Stage 0 if configured. Returns True if active."""
+    global _wandb
     wandb_config = config.get("wandb", {})
     project = os.environ.get("WANDB_PROJECT") or wandb_config.get("project")
 
@@ -46,6 +50,7 @@ def _setup_wandb(config: dict):
         config=config,
     )
     atexit.register(wandb.finish)
+    _wandb = wandb
     return True
 
 
@@ -237,8 +242,7 @@ def main():
                       f"Loss: {loss.item():.4f} | Avg: {avg_loss:.4f} | "
                       f"Time: {elapsed:.0f}s")
                 if use_wandb:
-                    import wandb
-                    wandb.log({
+                    _wandb.log({
                         "train/loss": loss.item(),
                         "train/avg_loss": avg_loss,
                         "train/epoch": epoch + num_batches / len(dataloader),

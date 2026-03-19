@@ -11,12 +11,24 @@ import argparse
 import os
 
 import torch
-from transformers import TrainingArguments, Trainer
+from transformers import TrainingArguments, Trainer, TrainerCallback
 
 from src.config import load_config
 from src.model.build_model import load_speech_encoder, load_llm_with_lora, build_projector, get_device
 from src.model.speech_llm import SpeechLLM, SPEECH_PLACEHOLDER
 from src.data.collator import SpeechTextCollator
+
+
+class WandbConfigCallback(TrainerCallback):
+    """Logs the full pipeline config to wandb once the run is initialized."""
+
+    def __init__(self, config: dict):
+        self.config = config
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        import wandb
+        if wandb.run is not None:
+            wandb.config.update({"pipeline": self.config}, allow_val_change=True)
 
 
 def get_precision_args():
@@ -181,23 +193,14 @@ def main():
             **get_precision_args(),
         )
 
+        callbacks = [WandbConfigCallback(config)] if report_to == "wandb" else []
+
         trainer = Trainer(
             model=llm, args=training_args,
             train_dataset=train_dataset, data_collator=collator,
+            callbacks=callbacks,
         )
-
-        # Log full config to wandb (HF Trainer only logs TrainingArguments)
-        if report_to == "wandb":
-            import wandb
-            if wandb.run is not None:
-                wandb.config.update({"pipeline": config}, allow_val_change=True)
-
-        try:
-            trainer.train()
-        finally:
-            if report_to == "wandb":
-                import wandb
-                wandb.finish()
+        trainer.train()
 
         llm.save_pretrained(os.path.join(output_dir, "lora_adapters"))
         tokenizer.save_pretrained(os.path.join(output_dir, "lora_adapters"))
@@ -326,9 +329,12 @@ def main():
         **get_precision_args(),
     )
 
+    callbacks = [WandbConfigCallback(config)] if report_to == "wandb" else []
+
     trainer_kwargs = dict(
         model=model, args=training_args,
         train_dataset=train_dataset, data_collator=collator,
+        callbacks=callbacks,
     )
 
     if sampler is not None:
@@ -365,19 +371,8 @@ def main():
 
         trainer.create_optimizer = create_optimizer_with_param_groups
 
-    # Log full config to wandb
-    if report_to == "wandb":
-        import wandb
-        if wandb.run is not None:
-            wandb.config.update({"pipeline": config}, allow_val_change=True)
-
     print("Starting training...")
-    try:
-        trainer.train(resume_from_checkpoint=args.resume_from)
-    finally:
-        if report_to == "wandb":
-            import wandb
-            wandb.finish()
+    trainer.train(resume_from_checkpoint=args.resume_from)
 
     # Save
     print(f"Saving to {output_dir}")
