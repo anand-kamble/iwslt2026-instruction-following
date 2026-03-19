@@ -56,7 +56,13 @@ class SpeechTextCollator:
                 import torchaudio
                 audios = []
                 for f in features:
-                    if "audio_array" in f:
+                    if "audio_path" in f and f["audio_path"]:
+                        # Load audio from file path (e.g., SQA → LibriSpeech)
+                        waveform, sr = torchaudio.load(f["audio_path"])
+                        if waveform.shape[0] > 1:
+                            waveform = waveform.mean(dim=0, keepdim=True)
+                        audio = waveform.squeeze(0).numpy()
+                    elif "audio_array" in f:
                         audio = f["audio_array"]
                         sr = f.get("sampling_rate", 16000)
                     elif isinstance(f.get("audio"), dict):
@@ -106,21 +112,24 @@ class SpeechTextCollator:
         batch["attention_mask"] = text_inputs["attention_mask"]
 
         # Create labels: mask everything except assistant response
-        labels = text_inputs["input_ids"].clone()
-        for i, f in enumerate(features):
-            prompt_messages = [m for m in f["messages"] if m["role"] != "assistant"]
-            prompt_text = self.tokenizer.apply_chat_template(
-                prompt_messages,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-            prompt_ids = self.tokenizer(
-                prompt_text, truncation=True, max_length=self.max_seq_length
-            )["input_ids"]
-            prompt_len = len(prompt_ids)
+        # Find the assistant response boundary by searching for the assistant
+        # header token sequence in the tokenized IDs, avoiding re-tokenization
+        # boundary mismatches.
+        assistant_header = self.tokenizer.encode(
+            "<|im_start|>assistant\n", add_special_tokens=False
+        )
+        header_len = len(assistant_header)
 
-            # Mask prompt tokens in labels
-            labels[i, :prompt_len] = -100
+        labels = text_inputs["input_ids"].clone()
+        for i in range(len(features)):
+            ids = text_inputs["input_ids"][i].tolist()
+            # Find the LAST assistant header (in case of multi-turn)
+            prompt_end = 0
+            for j in range(len(ids) - header_len + 1):
+                if ids[j : j + header_len] == assistant_header:
+                    prompt_end = j + header_len
+            # Mask everything up to and including the assistant header
+            labels[i, :prompt_end] = -100
 
         # Mask padding in labels
         labels[text_inputs["attention_mask"] == 0] = -100

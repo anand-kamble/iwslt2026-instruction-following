@@ -80,7 +80,7 @@ def main():
     model.eval()
 
     print("Loading LibriSQA...")
-    ds = load_dataset("westbrook/librisqa", split="train", trust_remote_code=True)
+    ds = load_dataset("ZihanZhao/LibriSQA", split="partI.train")
 
     questions = [ex.get("question", "") for ex in ds]
     answers = [ex.get("answer", "") for ex in ds]
