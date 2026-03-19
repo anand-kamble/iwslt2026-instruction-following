@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import atexit
 import os
 import time
 
@@ -22,6 +23,30 @@ from torch.utils.data import Dataset, DataLoader
 import yaml
 
 from src.model.build_model import build_projector, get_device
+
+
+def _setup_wandb(config: dict):
+    """Initialize wandb for Stage 0 if configured. Returns True if active."""
+    wandb_config = config.get("wandb", {})
+    project = os.environ.get("WANDB_PROJECT") or wandb_config.get("project")
+
+    if not project:
+        return False
+
+    import wandb
+    from datetime import datetime
+
+    os.environ["WANDB_LOG_MODEL"] = "false"
+    os.environ["WANDB_WATCH"] = "false"
+
+    wandb.init(
+        project=project,
+        entity=os.environ.get("WANDB_ENTITY") or wandb_config.get("entity"),
+        name=f"stage0_prealign_{datetime.now().strftime('%m%d_%H%M')}",
+        config=config,
+    )
+    atexit.register(wandb.finish)
+    return True
 
 
 class AlignmentDataset(Dataset):
@@ -107,13 +132,15 @@ def main():
     parser.add_argument("--output_dir", default=None)
     args = parser.parse_args()
 
-    # Load config
-    with open(args.config) as f:
-        config = yaml.safe_load(f)
+    # Load config (merge with base.yaml for wandb settings)
+    from src.config import load_config
+    config = load_config(args.config)
 
     training_config = config.get("training", {})
     output_dir = args.output_dir or training_config.get("output_dir", "outputs/stage0_prealign")
     os.makedirs(output_dir, exist_ok=True)
+
+    use_wandb = _setup_wandb(config)
 
     device = get_device()
     print(f"Device: {device}")
@@ -209,6 +236,14 @@ def main():
                 print(f"Step {global_step} | Epoch {epoch+1}/{num_epochs} | "
                       f"Loss: {loss.item():.4f} | Avg: {avg_loss:.4f} | "
                       f"Time: {elapsed:.0f}s")
+                if use_wandb:
+                    import wandb
+                    wandb.log({
+                        "train/loss": loss.item(),
+                        "train/avg_loss": avg_loss,
+                        "train/epoch": epoch + num_batches / len(dataloader),
+                        "train/learning_rate": optimizer.param_groups[0]["lr"],
+                    }, step=global_step)
 
             if global_step % save_steps == 0:
                 torch.save(projector.state_dict(), projector_path)

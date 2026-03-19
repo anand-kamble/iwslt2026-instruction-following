@@ -106,15 +106,19 @@ def main():
     print(f"Task: {config['task']} | Stage: {stage} | Text-only: {text_only} | No-LoRA: {no_lora}")
     print(f"Output: {output_dir}")
 
-    # Setup wandb if configured
+    # Setup wandb — env vars take precedence over YAML config
     wandb_config = config.get("wandb", {})
-    if wandb_config.get("project"):
-        os.environ.setdefault("WANDB_PROJECT", wandb_config["project"])
-        if wandb_config.get("entity"):
-            os.environ.setdefault("WANDB_ENTITY", wandb_config["entity"])
+    wandb_project = os.environ.get("WANDB_PROJECT") or wandb_config.get("project")
+
+    if wandb_project:
+        os.environ["WANDB_PROJECT"] = wandb_project
+        if not os.environ.get("WANDB_ENTITY") and wandb_config.get("entity"):
+            os.environ["WANDB_ENTITY"] = wandb_config["entity"]
         os.environ["WANDB_LOG_MODEL"] = "false"
+        os.environ["WANDB_WATCH"] = "false"
         report_to = "wandb"
-        run_name = task_label
+        from datetime import datetime
+        run_name = f"{task_label}_{datetime.now().strftime('%m%d_%H%M')}"
     else:
         report_to = "tensorboard"
         run_name = None
@@ -181,7 +185,19 @@ def main():
             model=llm, args=training_args,
             train_dataset=train_dataset, data_collator=collator,
         )
-        trainer.train()
+
+        # Log full config to wandb (HF Trainer only logs TrainingArguments)
+        if report_to == "wandb":
+            import wandb
+            if wandb.run is not None:
+                wandb.config.update({"pipeline": config}, allow_val_change=True)
+
+        try:
+            trainer.train()
+        finally:
+            if report_to == "wandb":
+                import wandb
+                wandb.finish()
 
         llm.save_pretrained(os.path.join(output_dir, "lora_adapters"))
         tokenizer.save_pretrained(os.path.join(output_dir, "lora_adapters"))
@@ -349,8 +365,19 @@ def main():
 
         trainer.create_optimizer = create_optimizer_with_param_groups
 
+    # Log full config to wandb
+    if report_to == "wandb":
+        import wandb
+        if wandb.run is not None:
+            wandb.config.update({"pipeline": config}, allow_val_change=True)
+
     print("Starting training...")
-    trainer.train(resume_from_checkpoint=args.resume_from)
+    try:
+        trainer.train(resume_from_checkpoint=args.resume_from)
+    finally:
+        if report_to == "wandb":
+            import wandb
+            wandb.finish()
 
     # Save
     print(f"Saving to {output_dir}")

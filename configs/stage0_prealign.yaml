@@ -1,6 +1,8 @@
 # Stage 0: MSE pre-alignment (projector only, no LLM in loop)
 # Trains projector to map speech features → LLM embedding space
 # ~2-3 GB memory, ~50-100x faster than Stage 1
+defaults:
+  - base
 
 training:
   projector_type: transformer

@@ -10,7 +10,7 @@ hub:
 
 wandb:
   project: iwslt2026
-  entity: anand-kamble
+  # entity defaults to your wandb login. Override with WANDB_ENTITY env var.
 
 training:
   seed: 42
