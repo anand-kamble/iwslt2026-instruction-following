@@ -185,7 +185,7 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
         achap_config = tasks_config["achap"]
         for lang in achap_config.get("languages", ["en"]):
             try:
-                ds = load_achap_dataset("train", lang)
+                ds = load_achap_dataset("train", lang, use_audio=achap_config.get("use_audio", True))
                 if max_samples and len(ds) > max_samples:
                     ds = ds.select(range(max_samples))
                 all_datasets[f"achap_{lang}"] = ds

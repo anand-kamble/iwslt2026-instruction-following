@@ -10,9 +10,9 @@ stage: 2
 data:
   train:
     - mt_europarlst
+    - sqa_english
     # - mt_gigast  # uncomment after downloading GigaST translations
     # - sqa_translated  # uncomment after running translate_sqa.py
-    # - sqa_english  # uncomment after fixing LibriSQA schema
 
 training:
   text_only: true

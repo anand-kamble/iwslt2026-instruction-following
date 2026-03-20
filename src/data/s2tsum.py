@@ -10,7 +10,7 @@ from src.data.utils import TASK_PROMPTS, format_chat_messages
 
 def load_s2tsum_dataset(split: str = "train", language: str = "en"):
     """Load the NUTSHELL summarization dataset."""
-    ds = load_dataset("NUTSHELL", split=split, trust_remote_code=True)
+    ds = load_dataset("maikezu/nutshell", split=split, trust_remote_code=True)
 
     def _format(example):
         instruction = TASK_PROMPTS["s2tsum"][language]

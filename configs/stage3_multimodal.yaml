@@ -14,17 +14,25 @@ tasks:
     train:
       - europarlst
     # - gigast  # uncomment after downloading GigaST
-  # s2tt:  # uncomment after all datasets are ready
-  #   train:
-  #     - europarlst
-  #   target_languages:
-  #     - de
-  #     - it
-  # sqa:  # uncomment after translated SQA is ready
+  s2tt:
+    train:
+      - europarlst
+    target_languages:
+      - de
+      - it
+      # - zh  # needs GigaST (EuroParlST has no EN→ZH)
+  # sqa:  # needs LibriSpeech audio in data/LibriSpeech/
   #   train:
   #     - librisqa
   #   languages:
   #     - en
+  s2tsum:
+    languages:
+      - en
+  achap:
+    languages:
+      - en
+    use_audio: true  # downloads ~68GB YTSeg audio config
 
 data:
   max_samples: 30000
