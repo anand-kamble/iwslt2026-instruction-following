@@ -38,6 +38,7 @@
 
 set -euo pipefail
 export PYTHONUNBUFFERED=1
+export HF_HOME=/scratch/atathe2/hf_cache
 
 # ── Config ───────────────────────────────────────────────────────────────────
 HF_REPO="anand-kamble/iwslt2026-stage3"

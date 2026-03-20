@@ -33,9 +33,7 @@ def load_mt_europarlst(target_lang: str, split: str = "train"):
         tgt_text = transcriptions.get(target_lang, "")
         return bool(en_text and en_text.strip() and tgt_text and tgt_text.strip())
 
-    import os
-    num_proc = os.cpu_count() or 1
-    ds = ds.filter(has_both_langs, num_proc=num_proc)
+    ds = ds.filter(has_both_langs, num_proc=8)
 
     def _format(example):
         instruction = TASK_PROMPTS["s2tt"][target_lang]
@@ -46,7 +44,7 @@ def load_mt_europarlst(target_lang: str, split: str = "train"):
         example["messages"] = format_text_only_messages(full_instruction, target_text)
         return example
 
-    ds = ds.map(_format, num_proc=num_proc)
+    ds = ds.map(_format, num_proc=8)
     return ds
 
 

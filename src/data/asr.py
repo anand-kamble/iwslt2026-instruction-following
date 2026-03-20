@@ -30,18 +30,14 @@ def load_europarlst_asr(split: str = "train", max_samples: int = None):
     Args:
         max_samples: Limit to first N English samples. None = full dataset.
     """
-    import os
-    num_proc = os.cpu_count() or 1
-
     # Full download — HF manages the Arrow table so no int32 overflow on audio
     print("Downloading EuroParlST (cached after first run)...")
     ds = load_dataset("CLAPv2/Europarl-st", split=split)
 
-    # Text filter is lightweight — safe to parallelize
-    print(f"Filtering for English samples using {num_proc} cores...")
+    print("Filtering for English samples...")
     ds = ds.filter(
         lambda ex: ex["text"].startswith("A person is saying:"),
-        num_proc=num_proc,
+        num_proc=8,
     )
     print(f"Found {len(ds)} English samples")
 
@@ -58,7 +54,7 @@ def load_europarlst_asr(split: str = "train", max_samples: int = None):
 
     # Only format text — keep the original "audio" column untouched.
     # The collator and precompute script handle audio extraction at read time.
-    ds = ds.map(_format, num_proc=num_proc)
+    ds = ds.map(_format, num_proc=8)
     return ds
 
 
