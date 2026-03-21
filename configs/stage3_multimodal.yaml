@@ -50,6 +50,7 @@ training:
   lr_projector: 1e-5
   lr_lora: 3e-4
   warmup_ratio: 0.0
+  lr_scheduler_type: constant
   save_steps: 500
   logging_steps: 10
   logging_dir: ./logs/stage3

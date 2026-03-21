@@ -376,6 +376,19 @@ def main():
 
         trainer.create_optimizer = create_optimizer_with_param_groups
 
+        # Log per-group learning rates to wandb
+        class PerGroupLRCallback(TrainerCallback):
+            """Log per-parameter-group learning rates separately."""
+
+            def on_log(self, args, state, control, logs=None, **kwargs):
+                if logs is None or trainer.optimizer is None:
+                    return
+                for i, name in enumerate(["projector", "lora"]):
+                    if i < len(trainer.optimizer.param_groups):
+                        logs[f"lr_{name}"] = trainer.optimizer.param_groups[i]["lr"]
+
+        trainer.add_callback(PerGroupLRCallback())
+
     print("Starting training...")
     trainer.train(resume_from_checkpoint=args.resume_from)
 
