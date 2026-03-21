@@ -14,7 +14,6 @@ data:
     # - gigast  # uncomment after downloading GigaST translations
   eval:
     - mcif
-  max_samples: 30000
 
 training:
   no_lora: true

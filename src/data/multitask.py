@@ -166,28 +166,28 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
             except (ValueError, FileNotFoundError) as e:
                 print(f"Skipping SQA/{lang}: {e}")
 
-    # S2TSUM
+    # S2TSUM (lazy audio — no max_samples needed for memory)
     if "s2tsum" in tasks_config:
         from src.data.s2tsum import load_s2tsum_dataset
         s2tsum_config = tasks_config["s2tsum"]
+        s2tsum_max = s2tsum_config.get("max_samples", max_samples)
         for lang in s2tsum_config.get("languages", ["en"]):
             try:
-                ds = load_s2tsum_dataset("train", lang)
-                if max_samples and len(ds) > max_samples:
-                    ds = ds.select(range(max_samples))
+                ds = load_s2tsum_dataset("train", lang, max_samples=s2tsum_max)
                 all_datasets[f"s2tsum_{lang}"] = ds
             except (ValueError, FileNotFoundError) as e:
                 print(f"Skipping S2TSUM/{lang}: {e}")
 
-    # ACHAP
+    # ACHAP (lazy audio — no max_samples needed for memory)
     if "achap" in tasks_config:
         from src.data.achap import load_achap_dataset
         achap_config = tasks_config["achap"]
+        achap_max = achap_config.get("max_samples", max_samples)
         for lang in achap_config.get("languages", ["en"]):
             try:
-                ds = load_achap_dataset("train", lang, use_audio=achap_config.get("use_audio", True))
-                if max_samples and len(ds) > max_samples:
-                    ds = ds.select(range(max_samples))
+                ds = load_achap_dataset("train", lang,
+                                        use_audio=achap_config.get("use_audio", True),
+                                        max_samples=achap_max)
                 all_datasets[f"achap_{lang}"] = ds
             except (ValueError, FileNotFoundError) as e:
                 print(f"Skipping ACHAP/{lang}: {e}")

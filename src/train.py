@@ -189,8 +189,8 @@ def main():
             remove_unused_columns=False,
             gradient_checkpointing=training_config.get("gradient_checkpointing", True),
             dataloader_num_workers=training_config.get("dataloader_num_workers", 4),
-            dataloader_pin_memory=True,
-            tf32=True,
+            dataloader_pin_memory=torch.cuda.is_available(),
+            tf32=torch.cuda.is_available(),
             **get_precision_args(),
         )
 
@@ -326,8 +326,8 @@ def main():
         gradient_checkpointing=training_config.get("gradient_checkpointing", True),
         remove_unused_columns=False,
         dataloader_num_workers=training_config.get("dataloader_num_workers", 4),
-        dataloader_pin_memory=True,
-        tf32=True,
+        dataloader_pin_memory=torch.cuda.is_available(),
+        tf32=torch.cuda.is_available(),
         **get_precision_args(),
     )
 

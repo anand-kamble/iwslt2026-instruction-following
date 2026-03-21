@@ -8,6 +8,7 @@ stage: 2
 data:
   train:
     - mt_europarlst
+    - sqa_english
   max_samples: 20
 
 training:

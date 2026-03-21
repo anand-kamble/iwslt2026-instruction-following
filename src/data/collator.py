@@ -30,6 +30,7 @@ class SpeechTextCollator:
     tokenizer: object  # Qwen tokenizer
     max_seq_length: int = 4096
     text_only: bool = False
+    max_audio_seconds: int = 30  # truncate audio to avoid OOM in speech encoder
 
     def __post_init__(self):
         self._resamplers = {}
@@ -77,6 +78,11 @@ class SpeechTextCollator:
                             self._resamplers[sr] = torchaudio.transforms.Resample(sr, 16000)
                         waveform = torch.as_tensor(audio, dtype=torch.float32).unsqueeze(0)
                         audio = self._resamplers[sr](waveform).squeeze(0).numpy()
+
+                    # Truncate long audio to avoid OOM in speech encoder
+                    max_samples = self.max_audio_seconds * 16000
+                    if len(audio) > max_samples:
+                        audio = audio[:max_samples]
 
                     audios.append(audio)
 

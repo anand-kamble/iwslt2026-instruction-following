@@ -10,6 +10,19 @@ tasks:
   asr:
     train:
       - europarlst
+  s2tt:
+    train:
+      - europarlst
+    target_languages:
+      - de
+      - it
+  s2tsum:
+    languages:
+      - en
+  achap:
+    languages:
+      - en
+    use_audio: true
 
 data:
   max_samples: 20

@@ -32,10 +32,9 @@ tasks:
   achap:
     languages:
       - en
-    use_audio: true  # downloads ~68GB YTSeg audio config
+    use_audio: true     # ~68GB YTSeg audio config
 
-data:
-  max_samples: 30000
+data: {}
 
 sampling:
   temperature: 0.5
@@ -43,8 +42,9 @@ sampling:
 training:
   downsample_factor: 3
   max_steps: 1000
-  per_device_train_batch_size: 64
-  gradient_accumulation_steps: 4
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 64
+  dataloader_num_workers: 2
   gradient_checkpointing: true
   learning_rate: 1e-5
   lr_projector: 1e-5

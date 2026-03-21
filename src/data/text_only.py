@@ -92,7 +92,12 @@ def load_sqa_text_only(split: str = "train", language: str = "en"):
 
     split_map = {"train": "partI.train", "test": "partI.test"}
     hf_split = split_map.get(split, split)
-    ds = load_dataset("ZihanZhao/LibriSQA", split=hf_split)
+    ds = load_dataset(
+        "ZihanZhao/LibriSQA",
+        data_files={"partI.train": "LibriSQA-PartI/LibriSQA-PartI-train.json",
+                     "partI.test": "LibriSQA-PartI/LibriSQA-PartI-test.json"},
+        split=hf_split,
+    )
 
     def _format(example):
         question = example.get("question", "")

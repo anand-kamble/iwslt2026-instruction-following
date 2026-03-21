@@ -80,7 +80,11 @@ def main():
     model.eval()
 
     print("Loading LibriSQA...")
-    ds = load_dataset("ZihanZhao/LibriSQA", split="partI.train")
+    ds = load_dataset(
+        "ZihanZhao/LibriSQA",
+        data_files={"partI.train": "LibriSQA-PartI/LibriSQA-PartI-train.json"},
+        split="partI.train",
+    )
 
     questions = [ex.get("question", "") for ex in ds]
     answers = [ex.get("answer", "") for ex in ds]
