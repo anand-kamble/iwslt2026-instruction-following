@@ -101,6 +101,8 @@ def main():
                         help="Load projector weights from Stage 1")
     parser.add_argument("--stage2_checkpoint", type=str, default=None,
                         help="Load LoRA weights from Stage 2")
+    parser.add_argument("--precomputed_dir", type=str, default=None,
+                        help="Dir with pre-extracted speech features (from extract_features.py)")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -274,6 +276,19 @@ def main():
     if config["task"] == "multitask":
         from src.data.multitask import MultiTaskDataset, TemperatureSampler, load_all_task_datasets
         task_datasets = load_all_task_datasets(config)
+
+        # Wrap with precomputed features if available
+        if args.precomputed_dir:
+            from src.data.precomputed import PrecomputedWrapper
+            missing = [t for t in task_datasets if not os.path.isdir(os.path.join(args.precomputed_dir, t))]
+            if missing:
+                print(f"WARNING: No precomputed features for {missing}, using live encoder")
+            else:
+                for task_name in task_datasets:
+                    task_dir = os.path.join(args.precomputed_dir, task_name)
+                    task_datasets[task_name] = PrecomputedWrapper(task_datasets[task_name], task_dir)
+                print(f"Using precomputed features from {args.precomputed_dir}")
+
         train_dataset = MultiTaskDataset(task_datasets)
         sampling_config = config.get("sampling", {})
         temperature = sampling_config.get("temperature", 0.5)

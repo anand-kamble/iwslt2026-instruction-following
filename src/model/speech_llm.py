@@ -138,10 +138,16 @@ class SpeechLLM(nn.Module):
             if labels is not None:
                 labels = labels.to(device)
 
-        # 1. Encode speech
-        speech_features, speech_lengths = self.encode_speech(
-            input_features, input_features_attention_mask
-        )
+        # 1. Encode speech (skip if pre-extracted features provided)
+        speech_dim = getattr(self.speech_encoder.config, "hidden_size", 1024)
+        if input_features.shape[-1] == speech_dim:
+            # Pre-extracted encoder outputs — skip the frozen encoder
+            speech_features = input_features
+            speech_lengths = input_features_attention_mask.sum(dim=1)
+        else:
+            speech_features, speech_lengths = self.encode_speech(
+                input_features, input_features_attention_mask
+            )
 
         # 2. Project to LLM space (projector masks padding internally)
         target_dtype = self.dtype

@@ -33,10 +33,12 @@
 #   outputs/stage0_prealign/   — Stage 0 projector
 #   outputs/stage1_asr/        — Stage 1 projector
 #   outputs/stage2_text_lora/  — Stage 2 LoRA adapters
+#   data/precomputed/          — Pre-extracted speech features (Stage 3a)
 #   outputs/stage3_multitask/  — Stage 3 final checkpoint (uploaded to HF)
 # =============================================================================
 
 set -euo pipefail
+cd "$(dirname "$0")/.."   # ensure we're in project root regardless of submit location
 export PYTHONUNBUFFERED=1
 export HF_HOME=/scratch/atathe2/hf_cache
 
@@ -51,6 +53,7 @@ STAGE0_DIR="outputs/stage0_prealign"
 STAGE1_DIR="outputs/stage1_asr"
 STAGE2_DIR="outputs/stage2_text_lora"
 STAGE3_DIR="outputs/stage3_multitask"
+PRECOMPUTED_DIR="data/precomputed"
 ALIGNMENT_DATA="data/alignments/alignment_data.pt"
 
 # ── Wandb ────────────────────────────────────────────────────────────────────
@@ -70,10 +73,11 @@ fi
 source .venv/bin/activate
 mkdir -p logs
 
-# Ensure flash-attn is installed (required for Flash Attention 2 on H200)
+# flash-attn must be pre-installed (compiles for 10-30 min, unsafe during jobs):
+#   pip install wheel && pip install flash-attn --no-build-isolation
 if ! python -c "import flash_attn" 2>/dev/null; then
-    echo "Installing flash-attn..."
-    pip install wheel && pip install flash-attn --no-build-isolation
+    echo "ERROR: flash-attn not installed. Run the pip command above in an interactive session first."
+    exit 1
 fi
 
 # ── Failure trap ─────────────────────────────────────────────────────────────
@@ -93,7 +97,7 @@ cleanup() {
 try:
     import wandb
     if wandb.run is not None:
-        wandb.finish(exit_code=exit_code)
+        wandb.finish(exit_code=$exit_code)
 except Exception:
     pass
 " 2>/dev/null || true
@@ -170,16 +174,29 @@ if [ "$START_STAGE" -le 2 ] && [ "$END_STAGE" -ge 2 ]; then
     echo "Stage 2 complete: $STAGE2_DIR"
 fi
 
-# ── Stage 3: Multimodal merge ────────────────────────────────────────────────
+# ── Stage 3: Pre-extract features + Multimodal merge ─────────────────────────
 if [ "$START_STAGE" -le 3 ] && [ "$END_STAGE" -ge 3 ]; then
+    _CURRENT_STAGE="stage3_extract"
+    echo ""
+    echo "============================================================"
+    echo "STAGE 3a: Pre-extract speech encoder features"
+    echo "============================================================"
+
+    # Extract once, skip if already done (extract_features.py has resume support)
+    python src/extract_features.py \
+        --config configs/stage3_multimodal.yaml \
+        --output_dir "$PRECOMPUTED_DIR" \
+        --batch_size 32
+
     _CURRENT_STAGE="stage3"
     echo ""
     echo "============================================================"
-    echo "STAGE 3: Multimodal merge (projector + LoRA)"
+    echo "STAGE 3b: Multimodal merge (projector + LoRA)"
     echo "============================================================"
 
     STAGE3_ARGS=(
         --config configs/stage3_multimodal.yaml
+        --precomputed_dir "$PRECOMPUTED_DIR"
     )
 
     if [ -d "$STAGE1_DIR" ]; then
@@ -201,7 +218,7 @@ if [ "$START_STAGE" -le 3 ] && [ "$END_STAGE" -ge 3 ]; then
 fi
 
 # ── Upload to HuggingFace ────────────────────────────────────────────────────
-if [ "$SKIP_UPLOAD" -eq 0 ] && [ "$END_STAGE" -ge 3 ]; then
+if [ "$SKIP_UPLOAD" -eq 0 ] && [ "$START_STAGE" -le 3 ] && [ "$END_STAGE" -ge 3 ]; then
     _CURRENT_STAGE="upload"
     echo ""
     echo "============================================================"

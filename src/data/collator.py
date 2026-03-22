@@ -49,7 +49,7 @@ class SpeechTextCollator:
                 feats = [f["precomputed_features"] for f in features]
                 max_len = max(f.shape[0] for f in feats)
                 dim = feats[0].shape[1]
-                padded = torch.zeros(len(feats), max_len, dim)
+                padded = torch.zeros(len(feats), max_len, dim, dtype=feats[0].dtype)
                 mask = torch.zeros(len(feats), max_len, dtype=torch.long)
                 for i, f in enumerate(feats):
                     padded[i, : f.shape[0]] = f
