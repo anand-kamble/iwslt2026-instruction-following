@@ -364,11 +364,13 @@ def main():
             # Use fused AdamW on CUDA for better kernel fusion
             use_fused = get_device() == "cuda"
             from torch.optim import AdamW
+            wd = float(training_config.get("weight_decay", 0.0))
             optimizer = AdamW(
                 [
                     {"params": projector_params, "lr": float(lr_projector)},
                     {"params": other_params, "lr": float(lr_lora)},
                 ],
+                weight_decay=wd,
                 fused=use_fused,
             )
             trainer.optimizer = optimizer
@@ -376,18 +378,67 @@ def main():
 
         trainer.create_optimizer = create_optimizer_with_param_groups
 
-        # Log per-group learning rates to wandb
+        # Log per-group learning rates to wandb (must use wandb.log directly
+        # because WandbCallback runs before this callback in the chain)
         class PerGroupLRCallback(TrainerCallback):
             """Log per-parameter-group learning rates separately."""
 
             def on_log(self, args, state, control, logs=None, **kwargs):
-                if logs is None or trainer.optimizer is None:
+                if trainer.optimizer is None:
                     return
+                import wandb
+                if wandb.run is None:
+                    return
+                lr_logs = {}
                 for i, name in enumerate(["projector", "lora"]):
                     if i < len(trainer.optimizer.param_groups):
-                        logs[f"lr_{name}"] = trainer.optimizer.param_groups[i]["lr"]
+                        lr_logs[f"train/lr_{name}"] = trainer.optimizer.param_groups[i]["lr"]
+                if lr_logs:
+                    wandb.log(lr_logs, step=state.global_step)
 
         trainer.add_callback(PerGroupLRCallback())
+
+    # Per-task loss tracking for multitask training
+    if config["task"] == "multitask":
+        from collections import defaultdict
+
+        class MultitaskLossCallback(TrainerCallback):
+            """Track and log per-task training losses to wandb."""
+
+            def __init__(self):
+                self.task_losses = defaultdict(list)
+
+            def on_log(self, args, state, control, logs=None, **kwargs):
+                if not self.task_losses:
+                    return
+                import wandb
+                if wandb.run is None:
+                    return
+                task_logs = {}
+                for task, losses in self.task_losses.items():
+                    task_logs[f"train/loss_{task}"] = sum(losses) / len(losses)
+                wandb.log(task_logs, step=state.global_step)
+                self.task_losses.clear()
+
+        multitask_cb = MultitaskLossCallback()
+        trainer.add_callback(multitask_cb)
+
+        original_compute_loss = trainer.compute_loss
+
+        def compute_loss_with_task_tracking(model, inputs, return_outputs=False, num_items_in_batch=None):
+            tasks = inputs.pop("_tasks", None)
+            result = original_compute_loss(
+                model, inputs, return_outputs=return_outputs,
+                num_items_in_batch=num_items_in_batch,
+            )
+            if tasks:
+                loss = result[0] if return_outputs else result
+                unique = set(t for t in tasks if t)
+                task = next(iter(unique)) if len(unique) == 1 else "mixed"
+                multitask_cb.task_losses[task].append(loss.detach().item())
+            return result
+
+        trainer.compute_loss = compute_loss_with_task_tracking
 
     print("Starting training...")
     trainer.train(resume_from_checkpoint=args.resume_from)

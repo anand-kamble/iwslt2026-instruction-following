@@ -301,7 +301,7 @@ class TestProjectorDownsampling:
 
         proj = SpeechProjector(speech_dim=1024, llm_dim=2560, downsample_factor=5)
         x = torch.randn(2, 100, 1024)
-        out = proj(x)
+        out, _ = proj(x)
         assert out.shape == (2, 20, 2560)
 
     def test_downsample_factor_8(self):
@@ -309,7 +309,7 @@ class TestProjectorDownsampling:
 
         proj = SpeechProjector(speech_dim=1024, llm_dim=2560, downsample_factor=8)
         x = torch.randn(2, 160, 1024)
-        out = proj(x)
+        out, _ = proj(x)
         assert out.shape == (2, 20, 2560)
 
     def test_long_audio_sequence(self):
@@ -319,7 +319,7 @@ class TestProjectorDownsampling:
         proj = SpeechProjector(speech_dim=1024, llm_dim=2560, downsample_factor=5)
         # Use smaller sequence to avoid OOM in tests, but verify math
         x = torch.randn(1, 500, 1024)  # 500 tokens → 100 after downsample
-        out = proj(x)
+        out, _ = proj(x)
         assert out.shape == (1, 100, 2560)
 
 
@@ -361,14 +361,14 @@ class TestTransformerProjector:
         from src.model.adapters import TransformerProjector
         proj = TransformerProjector(speech_dim=1024, llm_dim=2560, downsample_factor=3)
         x = torch.randn(2, 150, 1024)
-        out = proj(x)
+        out, _ = proj(x)
         assert out.shape == (2, 50, 2560)
 
     def test_downsample_factor_1(self):
         from src.model.adapters import TransformerProjector
         proj = TransformerProjector(speech_dim=1024, llm_dim=2560, downsample_factor=1)
         x = torch.randn(2, 100, 1024)
-        out = proj(x)
+        out, _ = proj(x)
         assert out.shape == (2, 100, 2560)
 
     def test_param_count(self):
@@ -437,12 +437,12 @@ class TestBuildModel:
         proj = build_projector(projector_type="transformer", downsample_factor=3, device="cpu")
         assert hasattr(proj, "transformer")
         x = torch.randn(1, 90, 1024)
-        out = proj(x)
+        out, _ = proj(x)
         assert out.shape == (1, 30, 2560)
 
     def test_build_legacy_projector(self):
         from src.model.build_model import build_projector
         proj = build_projector(projector_type="linear", downsample_factor=1, device="cpu")
         x = torch.randn(1, 100, 1024)
-        out = proj(x)
+        out, _ = proj(x)
         assert out.shape == (1, 100, 2560)

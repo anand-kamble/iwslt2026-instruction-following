@@ -61,6 +61,23 @@ class SpeechLLM(nn.Module):
             return base.model.embed_tokens
         raise AttributeError("Cannot find embed_tokens in LLM structure")
 
+    def _compute_speech_output_lengths(self, input_lengths):
+        """Compute speech encoder output lengths from input feature lengths.
+
+        Accounts for the adapter's convolutional subsampling inside the
+        SeamlessM4Tv2 speech encoder.
+        """
+        config = self.speech_encoder.config
+        kernel_size = getattr(config, "adaptor_kernel_size", 3)
+        stride = getattr(config, "adaptor_stride", 2)
+        num_layers = getattr(config, "num_adapter_layers", 1)
+        pad = kernel_size // 2
+
+        lengths = input_lengths.float()
+        for _ in range(num_layers):
+            lengths = torch.floor((lengths + 2 * pad - kernel_size) / stride + 1)
+        return lengths.long()
+
     @torch.no_grad()
     def encode_speech(self, input_features, attention_mask=None):
         """Extract speech features from audio using the frozen encoder.
@@ -70,14 +87,27 @@ class SpeechLLM(nn.Module):
             attention_mask: (batch, seq_len)
 
         Returns:
-            (batch, T_down, 1024) speech features after adapter
+            (speech_features, speech_lengths) where speech_lengths is
+            the number of valid (non-padding) frames per sample.
         """
         output = self.speech_encoder(
             input_features=input_features,
             attention_mask=attention_mask,
             return_dict=True,
         )
-        return output.last_hidden_state
+        speech_features = output.last_hidden_state
+
+        if attention_mask is not None:
+            input_lengths = attention_mask.sum(dim=1)
+            speech_lengths = self._compute_speech_output_lengths(input_lengths)
+            speech_lengths = speech_lengths.clamp(max=speech_features.shape[1])
+        else:
+            speech_lengths = torch.full(
+                (speech_features.shape[0],), speech_features.shape[1],
+                device=speech_features.device, dtype=torch.long,
+            )
+
+        return speech_features, speech_lengths
 
     def forward(
         self,
@@ -109,20 +139,22 @@ class SpeechLLM(nn.Module):
                 labels = labels.to(device)
 
         # 1. Encode speech
-        speech_features = self.encode_speech(
+        speech_features, speech_lengths = self.encode_speech(
             input_features, input_features_attention_mask
         )
 
-        # 2. Project to LLM space and cast to LLM dtype
+        # 2. Project to LLM space (projector masks padding internally)
         target_dtype = self.dtype
-        speech_embeds = self.projector(speech_features).to(target_dtype)
+        speech_embeds, speech_lengths = self.projector(speech_features, speech_lengths)
+        speech_embeds = speech_embeds.to(target_dtype)
 
         # 3. Get text embeddings from LLM (already in target_dtype)
         text_embeds = self._get_embed_tokens()(input_ids)
 
         # 4. Find speech placeholder positions and replace with speech embeddings
         inputs_embeds, new_attention_mask, new_labels = self._merge_speech_and_text(
-            speech_embeds, text_embeds, input_ids, attention_mask, labels
+            speech_embeds, text_embeds, input_ids, attention_mask, labels,
+            speech_lengths=speech_lengths,
         )
 
         # 5. Forward through LLM
@@ -134,12 +166,14 @@ class SpeechLLM(nn.Module):
         return outputs
 
     def _merge_speech_and_text(
-        self, speech_embeds, text_embeds, input_ids, attention_mask, labels
+        self, speech_embeds, text_embeds, input_ids, attention_mask, labels,
+        speech_lengths=None,
     ):
         """Replace speech placeholder tokens with actual speech embeddings.
 
         For each sample in the batch, find the SPEECH_PLACEHOLDER token(s)
-        and replace them with the projected speech embeddings.
+        and replace them with the projected speech embeddings. Only valid
+        (non-padding) speech frames are inserted.
 
         Uses F.pad + torch.stack for proper autograd tracking (no in-place ops
         on untracked tensors).
@@ -151,9 +185,7 @@ class SpeechLLM(nn.Module):
                 "Call tokenizer.add_tokens([SPEECH_PLACEHOLDER]) first."
             )
         batch_size = text_embeds.shape[0]
-        speech_len = speech_embeds.shape[1]
         device = text_embeds.device
-        embed_dtype = text_embeds.dtype
 
         new_embeds_list = []
         new_mask_list = []
@@ -172,20 +204,26 @@ class SpeechLLM(nn.Module):
                     new_labels_list.append(labels[i])
                 continue
 
+            # Per-sample valid speech length (exclude padding frames)
+            sample_speech_len = (
+                speech_lengths[i].item() if speech_lengths is not None
+                else speech_embeds.shape[1]
+            )
+
             # Replace first placeholder with speech embeddings, remove the rest
             first_pos = placeholder_indices[0].item()
             num_placeholders = len(placeholder_indices)
 
-            # Parts: [text_before_placeholder] [speech_embeds] [text_after_placeholders]
+            # Parts: [text_before_placeholder] [valid_speech_embeds] [text_after_placeholders]
             before = text_embeds[i, :first_pos]
             after = text_embeds[i, first_pos + num_placeholders :]
 
-            merged = torch.cat([before, speech_embeds[i], after], dim=0)
+            merged = torch.cat([before, speech_embeds[i, :sample_speech_len], after], dim=0)
             new_embeds_list.append(merged)
 
             # Rebuild attention mask
             mask_before = attention_mask[i, :first_pos]
-            mask_speech = torch.ones(speech_len, device=device, dtype=attention_mask.dtype)
+            mask_speech = torch.ones(sample_speech_len, device=device, dtype=attention_mask.dtype)
             mask_after = attention_mask[i, first_pos + num_placeholders :]
             new_mask_list.append(torch.cat([mask_before, mask_speech, mask_after]))
 
@@ -193,7 +231,7 @@ class SpeechLLM(nn.Module):
             if labels is not None:
                 labels_before = labels[i, :first_pos]
                 labels_speech = torch.full(
-                    (speech_len,), -100, device=device, dtype=labels.dtype
+                    (sample_speech_len,), -100, device=device, dtype=labels.dtype
                 )
                 labels_after = labels[i, first_pos + num_placeholders :]
                 new_labels_list.append(
@@ -223,13 +261,15 @@ class SpeechLLM(nn.Module):
     @torch.inference_mode()
     def generate(self, input_features, input_features_attention_mask, input_ids, attention_mask, **generate_kwargs):
         """Generate text from speech + instruction input."""
-        speech_features = self.encode_speech(input_features, input_features_attention_mask)
-        speech_embeds = self.projector(speech_features).to(self.dtype)
+        speech_features, speech_lengths = self.encode_speech(input_features, input_features_attention_mask)
+        speech_embeds, speech_lengths = self.projector(speech_features, speech_lengths)
+        speech_embeds = speech_embeds.to(self.dtype)
 
         text_embeds = self._get_embed_tokens()(input_ids)
 
         inputs_embeds, new_attention_mask, _ = self._merge_speech_and_text(
-            speech_embeds, text_embeds, input_ids, attention_mask, labels=None
+            speech_embeds, text_embeds, input_ids, attention_mask, labels=None,
+            speech_lengths=speech_lengths,
         )
 
         outputs = self.llm.generate(

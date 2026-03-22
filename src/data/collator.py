@@ -38,6 +38,11 @@ class SpeechTextCollator:
     def __call__(self, features: list[dict]) -> dict:
         batch = {}
 
+        # Pass task labels through for per-task loss logging (multitask training)
+        tasks = [f.get("_task") for f in features]
+        if any(tasks):
+            batch["_tasks"] = tasks
+
         if not self.text_only:
             if "precomputed_features" in features[0]:
                 # Precomputed mode: pad pre-extracted features

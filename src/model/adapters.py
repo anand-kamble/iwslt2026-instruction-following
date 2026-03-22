@@ -4,6 +4,8 @@ The speech encoder outputs 1024-dim features at ~62.5 tokens/sec.
 Qwen3-4B has a hidden_size of 2560.
 """
 
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
 
@@ -40,14 +42,17 @@ class SpeechProjector(nn.Module):
             nn.Linear(llm_dim, llm_dim),
         )
 
-    def forward(self, speech_features: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, speech_features: torch.Tensor, lengths: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Project speech features to LLM embedding space.
 
         Args:
             speech_features: (batch, seq_len, speech_dim)
+            lengths: (batch,) valid frame count per sample
 
         Returns:
-            (batch, seq_len // downsample_factor, llm_dim)
+            (projected_features, updated_lengths)
         """
         x = speech_features
 
@@ -56,8 +61,10 @@ class SpeechProjector(nn.Module):
             x = x.transpose(1, 2)
             x = self.downsample(x)
             x = x.transpose(1, 2)
+            if lengths is not None:
+                lengths = lengths // self.downsample_factor
 
-        return self.proj(x)
+        return self.proj(x), lengths
 
 
 class TransformerProjector(nn.Module):
@@ -92,13 +99,17 @@ class TransformerProjector(nn.Module):
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.output_proj = nn.Linear(speech_dim, llm_dim)
 
-    def forward(self, speech_features: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, speech_features: torch.Tensor, lengths: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Project speech features to LLM embedding space.
 
         Args:
             speech_features: (batch, seq_len, speech_dim)
+            lengths: (batch,) valid frame count per sample
+
         Returns:
-            (batch, seq_len // downsample_factor, llm_dim)
+            (projected_features, updated_lengths)
         """
         x = speech_features
 
@@ -109,6 +120,16 @@ class TransformerProjector(nn.Module):
             x = x[:, :T_down * self.downsample_factor].reshape(
                 B, T_down, self.downsample_factor, D
             ).mean(dim=2)
+            if lengths is not None:
+                lengths = lengths // self.downsample_factor
 
-        x = self.transformer(x)
-        return self.output_proj(x)
+        # Mask padding in self-attention so real positions don't attend to padding
+        if lengths is not None:
+            T_curr = x.shape[1]
+            # nn.TransformerEncoder convention: True = position to ignore
+            padding_mask = torch.arange(T_curr, device=x.device).unsqueeze(0) >= lengths.unsqueeze(1)
+            x = self.transformer(x, src_key_padding_mask=padding_mask)
+        else:
+            x = self.transformer(x)
+
+        return self.output_proj(x), lengths

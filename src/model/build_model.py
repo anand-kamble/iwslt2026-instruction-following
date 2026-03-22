@@ -101,8 +101,12 @@ def load_llm_with_lora(
         elif load_in_8bit:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
     else:
-        # No quantization — use float16 (fits in 48GB on Mac, ~8GB for 4B model)
-        model_kwargs["torch_dtype"] = torch.float16
+        # Use bf16 on CUDA (matches training autocast dtype, better range than fp16)
+        # Fall back to fp16 on MPS/CPU
+        if device == "cuda" and torch.cuda.is_bf16_supported():
+            model_kwargs["torch_dtype"] = torch.bfloat16
+        else:
+            model_kwargs["torch_dtype"] = torch.float16
         if device == "cuda":
             model_kwargs["device_map"] = "auto"
 
@@ -166,7 +170,10 @@ def load_llm_from_checkpoint(
         elif load_in_8bit:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
     else:
-        model_kwargs["torch_dtype"] = torch.float16
+        if device == "cuda" and torch.cuda.is_bf16_supported():
+            model_kwargs["torch_dtype"] = torch.bfloat16
+        else:
+            model_kwargs["torch_dtype"] = torch.float16
         if device == "cuda":
             model_kwargs["device_map"] = "auto"
 
