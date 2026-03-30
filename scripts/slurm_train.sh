@@ -38,7 +38,7 @@
 # =============================================================================
 
 set -euo pipefail
-cd "$(dirname "$0")/.."   # ensure we're in project root regardless of submit location
+cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"   # ensure we're in project root
 export PYTHONUNBUFFERED=1
 export HF_HOME=/scratch/atathe2/hf_cache
 
