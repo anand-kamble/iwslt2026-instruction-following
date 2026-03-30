@@ -23,6 +23,13 @@ training:
   max_seq_length: 4096
   lora_r: 8
   lora_alpha: 16
+  lora_target_modules:
+    - q_proj
+    - k_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
   gradient_accumulation_steps: 4
   optim: adamw_torch_fused
   lr_scheduler_type: cosine
