@@ -51,9 +51,13 @@ def load_sqa_dataset(split: str = "train", language: str = "en"):
         example["messages"] = format_chat_messages(instruction, answer)
 
         # Resolve audio path relative to data dir
+        # LibriSQA references .wav but LibriSpeech ships .flac
         speech_path = example.get("speech_path", "")
         if speech_path:
-            example["audio_path"] = str(librispeech_root / speech_path)
+            audio_path = librispeech_root / speech_path
+            if not audio_path.exists():
+                audio_path = audio_path.with_suffix(".flac")
+            example["audio_path"] = str(audio_path)
 
         return example
 

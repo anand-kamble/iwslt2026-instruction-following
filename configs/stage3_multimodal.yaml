@@ -1,7 +1,7 @@
 # Stage 3: Multimodal merge (all tasks with audio)
 # Following NAVER IWSLT 2025: 1K steps, effective batch 256,
 # projector LR 1e-5, LoRA LR 3e-4 (30x ratio)
-# H200 141GB: batch 8 × accum 32 = 256 (~74% VRAM, 26% headroom)
+# H200 141GB: batch 16 × accum 8 = 128
 defaults:
   - base
 
@@ -49,7 +49,7 @@ sampling:
 training:
   downsample_factor: 3
   max_steps: 1000
-  per_device_train_batch_size: 32
+  per_device_train_batch_size: 16
   gradient_accumulation_steps: 8
   dataloader_num_workers: 2
   gradient_checkpointing: true

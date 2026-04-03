@@ -16,6 +16,11 @@ tasks:
     target_languages:
       - de
       - it
+  sqa:
+    train:
+      - librisqa
+    languages:
+      - en
   s2tsum:
     languages:
       - en
@@ -28,7 +33,13 @@ data:
   max_samples: 20
 
 sampling:
-  temperature: 0.5
+  ratios:
+    asr: 0.15
+    s2tt_de: 0.15
+    s2tt_it: 0.15
+    sqa_en: 0.30
+    s2tsum_en: 0.10
+    achap_en: 0.15
 
 training:
   downsample_factor: 3

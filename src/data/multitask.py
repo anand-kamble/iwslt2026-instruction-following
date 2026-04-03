@@ -61,6 +61,7 @@ class TemperatureSampler(Sampler[int]):
         self,
         dataset: MultiTaskDataset,
         temperature: float = 0.5,
+        ratios: dict[str, float] | None = None,
         total_samples: int | None = None,
         seed: int = 42,
     ):
@@ -68,16 +69,25 @@ class TemperatureSampler(Sampler[int]):
         self.temperature = temperature
         self.seed = seed
 
-        # Compute sampling weights per task
         sizes = dataset.task_sizes
         total_original = sum(sizes.values())
 
-        # Temperature-scaled probabilities: p_i ∝ n_i^T
-        raw_probs = {
-            name: math.pow(size, temperature) for name, size in sizes.items()
-        }
-        prob_sum = sum(raw_probs.values())
-        self.task_probs = {name: p / prob_sum for name, p in raw_probs.items()}
+        if ratios is not None:
+            # Use explicit ratios — normalize to sum to 1.0
+            present = {k: v for k, v in ratios.items() if k in sizes}
+            ratio_sum = sum(present.values())
+            self.task_probs = {name: p / ratio_sum for name, p in present.items()}
+            # Tasks in dataset but not in ratios get zero weight
+            for name in sizes:
+                if name not in self.task_probs:
+                    self.task_probs[name] = 0.0
+        else:
+            # Temperature-scaled probabilities: p_i ∝ n_i^T
+            raw_probs = {
+                name: math.pow(size, temperature) for name, size in sizes.items()
+            }
+            prob_sum = sum(raw_probs.values())
+            self.task_probs = {name: p / prob_sum for name, p in raw_probs.items()}
 
         # Total samples per epoch (default: sum of all datasets)
         self.total_samples = total_samples or total_original

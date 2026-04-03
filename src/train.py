@@ -148,6 +148,7 @@ def main():
             no_lora=False,
             lora_r=training_config.get("lora_r", 16),
             lora_alpha=training_config.get("lora_alpha", 16),
+            target_modules=training_config.get("lora_target_modules"),
         )
 
         from src.data.text_only import load_text_only_datasets
@@ -237,6 +238,7 @@ def main():
             no_lora=no_lora,
             lora_r=training_config.get("lora_r", 16),
             lora_alpha=training_config.get("lora_alpha", 16),
+            target_modules=training_config.get("lora_target_modules"),
         )
 
     # Add speech placeholder token
@@ -292,11 +294,16 @@ def main():
         train_dataset = MultiTaskDataset(task_datasets)
         sampling_config = config.get("sampling", {})
         temperature = sampling_config.get("temperature", 0.5)
+        ratios = sampling_config.get("ratios")
         sampler = TemperatureSampler(
             train_dataset, temperature=temperature,
+            ratios=ratios,
             seed=training_config.get("seed", 42),
         )
-        print(f"Multi-task sampling: temperature={temperature}")
+        if ratios:
+            print(f"Multi-task sampling: explicit ratios={ratios}")
+        else:
+            print(f"Multi-task sampling: temperature={temperature}")
     else:
         train_datasets = load_task_datasets(config)
         if len(train_datasets) > 1:
