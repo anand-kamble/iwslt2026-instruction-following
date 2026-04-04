@@ -268,6 +268,8 @@ class SpeechLLM(nn.Module):
     def generate(self, input_features, input_features_attention_mask, input_ids, attention_mask, **generate_kwargs):
         """Generate text from speech + instruction input."""
         speech_features, speech_lengths = self.encode_speech(input_features, input_features_attention_mask)
+        # Cast to projector dtype (fp32) — projector trained in fp32 for stability
+        speech_features = speech_features.to(next(self.projector.parameters()).dtype)
         speech_embeds, speech_lengths = self.projector(speech_features, speech_lengths)
         speech_embeds = speech_embeds.to(self.dtype)
 

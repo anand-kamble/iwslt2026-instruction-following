@@ -86,8 +86,11 @@ def run_inference_on_mcif(model, processor, tokenizer, task: str, language: str,
 
     prompt_key = f"prompt_{language}"
     samples = []
+    total = len(ds)
 
-    for example in ds:
+    for i, example in enumerate(ds):
+        if i % 10 == 0:
+            print(f"  [{i}/{total}] Processing...", flush=True)
         instruction = example[prompt_key]
 
         # Load audio from file path

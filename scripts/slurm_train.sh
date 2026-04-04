@@ -183,8 +183,9 @@ if [ "$START_STAGE" -le 3 ] && [ "$END_STAGE" -ge 3 ]; then
     echo "============================================================"
 
     # Extract once, skip if already done (extract_features.py has resume support)
+    STAGE3_CONFIG="${STAGE3_CONFIG:-configs/stage3_multimodal.yaml}"
     python src/extract_features.py \
-        --config configs/stage3_multimodal.yaml \
+        --config "$STAGE3_CONFIG" \
         --output_dir "$PRECOMPUTED_DIR" \
         --batch_size 32
 
@@ -195,7 +196,7 @@ if [ "$START_STAGE" -le 3 ] && [ "$END_STAGE" -ge 3 ]; then
     echo "============================================================"
 
     STAGE3_ARGS=(
-        --config configs/stage3_multimodal.yaml
+        --config "$STAGE3_CONFIG"
         --precomputed_dir "$PRECOMPUTED_DIR"
     )
 
