@@ -32,7 +32,7 @@ tasks:
   achap:
     languages:
       - en
-    use_audio: true     # ~68GB YTSeg audio config
+    use_audio: true # ~68GB YTSeg audio config
 
 data: {}
 
@@ -40,7 +40,7 @@ sampling:
   # Paper ratios: ASR 0.2 / ST 0.4 / SQA 0.4, scaled to include S2TSUM + ACHAP
   ratios:
     asr: 0.15
-    s2tt_de: 0.15   
+    s2tt_de: 0.15
     s2tt_it: 0.15
     sqa_en: 0.30
     s2tsum_en: 0.10
@@ -48,7 +48,7 @@ sampling:
 
 training:
   downsample_factor: 3
-  num_epochs: 1
+  max_steps: 1000
   per_device_train_batch_size: 8
   gradient_accumulation_steps: 4
   dataloader_num_workers: 2
@@ -58,7 +58,7 @@ training:
   lr_lora: 3e-4
   # lr_lora: 2e-4
   weight_decay: 0.1
-  warmup_ratio: 0.0
+  warmup_ratio: 0.03
   lr_scheduler_type: cosine
   lr_scheduler_projector: constant
   save_steps: 100
