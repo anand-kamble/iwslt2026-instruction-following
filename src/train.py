@@ -420,6 +420,41 @@ def main():
 
         trainer.add_callback(PerGroupLRCallback())
 
+        # Per-group LR scheduling: constant for projector, main schedule for LoRA
+        lr_scheduler_projector = training_config.get("lr_scheduler_projector")
+        if lr_scheduler_projector == "constant":
+            import math
+            from torch.optim.lr_scheduler import LambdaLR
+
+            sched_type = training_config.get("lr_scheduler_type", "cosine")
+
+            def create_scheduler_per_group(num_training_steps, optimizer=None):
+                opt = optimizer or trainer.optimizer
+                warmup_steps = training_args.get_warmup_steps(num_training_steps)
+
+                def projector_lambda(step):
+                    if step < warmup_steps:
+                        return float(step) / float(max(1, warmup_steps))
+                    return 1.0
+
+                def lora_lambda(step):
+                    if step < warmup_steps:
+                        return float(step) / float(max(1, warmup_steps))
+                    progress = float(step - warmup_steps) / float(
+                        max(1, num_training_steps - warmup_steps)
+                    )
+                    if sched_type == "cosine":
+                        return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
+                    elif sched_type == "linear":
+                        return max(0.0, 1.0 - progress)
+                    return 1.0  # fallback: constant
+
+                scheduler = LambdaLR(opt, [projector_lambda, lora_lambda])
+                trainer.lr_scheduler = scheduler
+                return scheduler
+
+            trainer.create_scheduler = create_scheduler_per_group
+
     # Per-task loss tracking for multitask training
     if config["task"] == "multitask":
         from collections import defaultdict
