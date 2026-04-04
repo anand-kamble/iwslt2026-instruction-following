@@ -16,7 +16,7 @@ import yaml
 
 from src.model.build_model import load_speech_encoder, build_projector
 from src.model.speech_llm import SpeechLLM, SPEECH_PLACEHOLDER
-from src.data.utils import TASK_PROMPTS, format_chat_messages
+from src.data.utils import TASK_PROMPTS, format_chat_messages, load_audio
 
 
 def load_checkpoint(checkpoint_dir: str, config: dict = None, device: str = None):
@@ -76,14 +76,13 @@ def check_mwer_segmenter():
     return True
 
 
-def run_inference_on_mcif(model, processor, tokenizer, task: str, language: str, track: str = "short"):
+def run_inference_on_mcif(model, processor, tokenizer, task: str, language: str, track: str = "short", data_dir: str = "."):
     """Run inference on MCIF validation set and write output XML."""
-    from datasets import load_dataset, Audio as AudioFeature
+    from datasets import load_dataset
     from mcif.io import OutputSample, write_output
 
     config_name = f"{track}_fixedprompt"
     ds = load_dataset("FBK-MT/MCIF", config_name, split="test")
-    ds = ds.cast_column("audio", AudioFeature(sampling_rate=16000))
 
     prompt_key = f"prompt_{language}"
     samples = []
@@ -91,9 +90,14 @@ def run_inference_on_mcif(model, processor, tokenizer, task: str, language: str,
     for example in ds:
         instruction = example[prompt_key]
 
+        # Load audio from file path
+        audio_path = os.path.join(data_dir, example["audio"])
+        waveform, _ = load_audio(audio_path)
+        audio_array = waveform.squeeze(0).numpy()
+
         # Process audio
         audio_inputs = processor(
-            audios=example["audio"]["array"],
+            audios=audio_array,
             sampling_rate=16000,
             return_tensors="pt",
             padding=True,
@@ -158,6 +162,7 @@ def main():
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--languages", nargs="+", default=["en", "de", "it", "zh"])
     parser.add_argument("--track", type=str, default="short", choices=["short", "long"])
+    parser.add_argument("--data-dir", type=str, default=".", help="Base directory for MCIF audio files")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -179,7 +184,7 @@ def main():
     for language in args.languages:
         print(f"\n=== Evaluating language={language} ===")
         output_path = run_inference_on_mcif(
-            model, processor, tokenizer, task, language, args.track
+            model, processor, tokenizer, task, language, args.track, args.data_dir
         )
         print(f"Output written to: {output_path}")
 
