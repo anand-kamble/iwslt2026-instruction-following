@@ -26,7 +26,7 @@ class PrecomputedWrapper(Dataset):
 
     def __getitem__(self, idx):
         item = self.dataset[idx]
-        feature_path = os.path.join(self.features_dir, f"{idx}.pt")
+        feature_path = os.path.join(self.features_dir, f"{idx}.pt") 
         item["precomputed_features"] = torch.load(feature_path, weights_only=True)
         # Drop raw audio — no longer needed
         for key in ("audio", "audio_path", "audio_array"):
