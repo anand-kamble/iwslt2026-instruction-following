@@ -14,7 +14,7 @@ import subprocess
 import torch
 import yaml
 
-from src.model.build_model import load_speech_encoder, build_projector, SPEECH_DIM, QWEN3_4B_DIM
+from src.model.build_model import load_speech_encoder, build_projector
 from src.model.speech_llm import SpeechLLM, SPEECH_PLACEHOLDER
 from src.data.utils import TASK_PROMPTS, format_chat_messages
 
@@ -40,6 +40,7 @@ def load_checkpoint(checkpoint_dir: str, config: dict = None, device: str = None
         base_model_name=llm_config.get("llm", "Qwen/Qwen3-4B-Instruct-2507"),
         load_in_4bit=training_config.get("load_in_4bit", False),
         load_in_8bit=training_config.get("load_in_8bit", False),
+        is_trainable=False,
         device=device,
     )
     llm.eval()
@@ -53,6 +54,11 @@ def load_checkpoint(checkpoint_dir: str, config: dict = None, device: str = None
     projector_path = os.path.join(checkpoint_dir, "projector.pt")
     projector.load_state_dict(torch.load(projector_path, map_location=device, weights_only=True))
     projector.eval()
+
+    # Ensure speech placeholder token is in tokenizer
+    if SPEECH_PLACEHOLDER not in tokenizer.get_vocab():
+        tokenizer.add_tokens([SPEECH_PLACEHOLDER])
+        llm.resize_token_embeddings(len(tokenizer))
 
     model = SpeechLLM(speech_encoder, projector, llm, tokenizer)
     return model, processor, tokenizer
@@ -107,7 +113,6 @@ def run_inference_on_mcif(model, processor, tokenizer, task: str, language: str,
             attention_mask=text_inputs["attention_mask"],
             max_new_tokens=512,
             do_sample=False,
-            repetition_penalty=1.1,
         )
 
         output_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
@@ -160,9 +165,10 @@ def main():
     task = config.get("task", "multitask")
     print(f"Evaluating task={task} track={args.track}")
 
-    # Check mWERSegmenter for non-English
+    # Check mWERSegmenter for non-English S2TT COMET scoring
     if any(lang != "en" for lang in args.languages):
-        check_mwer_segmenter()
+        if not check_mwer_segmenter():
+            print("Continuing without mWERSegmenter — S2TT COMET scores will be unavailable.")
 
     # Load model
     model, processor, tokenizer = load_checkpoint(args.checkpoint, config)

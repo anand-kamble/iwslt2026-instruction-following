@@ -142,6 +142,7 @@ def load_llm_from_checkpoint(
     base_model_name: str = "Qwen/Qwen3-4B-Instruct-2507",
     load_in_4bit: bool = False,
     load_in_8bit: bool = False,
+    is_trainable: bool = True,
     device: str = None,
 ):
     """Load LLM with LoRA adapters from a saved checkpoint.
@@ -186,7 +187,7 @@ def load_llm_from_checkpoint(
         base_model.resize_token_embeddings(len(tokenizer))
 
     # Apply saved LoRA adapters (trainable for continued fine-tuning)
-    model = PeftModel.from_pretrained(base_model, checkpoint_dir, is_trainable=True)
+    model = PeftModel.from_pretrained(base_model, checkpoint_dir, is_trainable=is_trainable)
 
     # Move to device if not already placed (device_map handles CUDA, manual for MPS/CPU)
     if not use_quantization and device != "cuda":
