@@ -110,12 +110,13 @@ def main():
     text_only = training_config.get("text_only", False)
     no_lora = training_config.get("no_lora", False)
 
+    config_name = os.path.splitext(os.path.basename(args.config))[0]
     output_dir = args.output_dir or config.get("paths", {}).get("output_dir", "./outputs")
     task_label = config["task"]
     stage = config.get("stage", "")
     if stage:
         task_label = f"stage{stage}_{task_label}"
-    output_dir = os.path.join(output_dir, task_label)
+    output_dir = os.path.join(output_dir, config_name)
 
     print(f"Task: {config['task']} | Stage: {stage} | Text-only: {text_only} | No-LoRA: {no_lora}")
     print(f"Output: {output_dir}")
@@ -132,7 +133,7 @@ def main():
         os.environ["WANDB_WATCH"] = "false"
         report_to = "wandb"
         from datetime import datetime
-        run_name = f"{task_label}_{datetime.now().strftime('%m%d_%H%M')}"
+        run_name = f"{config_name}_{datetime.now().strftime('%m%d_%H%M')}"
     else:
         report_to = "tensorboard"
         run_name = None

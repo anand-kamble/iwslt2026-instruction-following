@@ -63,4 +63,4 @@ training:
   lr_scheduler_projector: constant
   save_steps: 100
   logging_steps: 10
-  logging_dir: ./logs/stage3
+  logging_dir: ./logs/stage3_multimodal
