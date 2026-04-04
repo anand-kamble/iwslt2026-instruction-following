@@ -78,11 +78,12 @@ def check_mwer_segmenter():
 
 def run_inference_on_mcif(model, processor, tokenizer, task: str, language: str, track: str = "short"):
     """Run inference on MCIF validation set and write output XML."""
-    from datasets import load_dataset
+    from datasets import load_dataset, Audio as AudioFeature
     from mcif.io import OutputSample, write_output
 
     config_name = f"{track}_fixedprompt"
     ds = load_dataset("FBK-MT/MCIF", config_name, split="test")
+    ds = ds.cast_column("audio", AudioFeature(sampling_rate=16000))
 
     prompt_key = f"prompt_{language}"
     samples = []
