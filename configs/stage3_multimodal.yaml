@@ -48,7 +48,7 @@ sampling:
 
 training:
   downsample_factor: 3
-  max_steps: 1000
+  num_epochs: 1
   per_device_train_batch_size: 8
   gradient_accumulation_steps: 4
   dataloader_num_workers: 2
