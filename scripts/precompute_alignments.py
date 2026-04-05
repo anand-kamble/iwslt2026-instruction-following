@@ -140,6 +140,14 @@ def main():
     gc.collect()
     print(f"LLM embedding dim: {llm_dim}")
 
+    # Extract pad token embedding for Stage 0 per-frame alignment loss
+    pad_token_id = tokenizer.pad_token_id
+    with torch.no_grad():
+        pad_embedding = embed_tokens(
+            torch.tensor([[pad_token_id]], device=device)
+        ).squeeze(0).squeeze(0).cpu()  # (llm_dim,)
+    print(f"Pad token ID: {pad_token_id}, embedding norm: {pad_embedding.norm():.4f}")
+
     text_embeddings_list = []
 
     for i in tqdm(range(len(transcriptions)), desc="Text embeddings"):
@@ -161,6 +169,7 @@ def main():
     torch.save({
         "speech_features": speech_features_list,
         "text_embeddings": text_embeddings_list,
+        "pad_embedding": pad_embedding,
         "llm_dim": llm_dim,
         "downsample_factor": args.downsample_factor,
         "num_samples": len(speech_features_list),

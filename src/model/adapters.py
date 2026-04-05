@@ -95,6 +95,7 @@ class TransformerProjector(nn.Module):
             dropout=dropout,
             activation="gelu",
             batch_first=True,
+            norm_first=True,  # pre-layer norm, matching NAVER IWSLT 2025 (arxiv 2506.01808)
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.output_proj = nn.Linear(speech_dim, llm_dim)

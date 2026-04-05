@@ -62,6 +62,11 @@ class AlignmentDataset(Dataset):
         self.speech_features = data["speech_features"]  # list of (T_i, 1024)
         self.text_embeddings = data["text_embeddings"]   # list of (S_i, llm_dim)
         self.llm_dim = data["llm_dim"]
+        self.pad_embedding = data.get("pad_embedding")   # (llm_dim,) or None
+        if self.pad_embedding is not None:
+            print(f"Loaded pad embedding (norm: {self.pad_embedding.norm():.4f})")
+        else:
+            print("WARNING: No pad_embedding in data. Re-run precompute_alignments.py to enable per-frame loss.")
         print(f"Loaded {len(self.speech_features)} alignment pairs (LLM dim: {self.llm_dim})")
 
     def __len__(self):
@@ -109,25 +114,79 @@ def collate_alignment(batch):
     }
 
 
-def compute_alignment_loss(projected, text_embeddings, speech_lengths, text_lengths):
-    """Compute MSE loss between projected speech and text embeddings.
+def compute_alignment_loss(projected, text_embeddings, speech_lengths, text_lengths,
+                           pad_embedding=None):
+    """Compute per-frame MSE + cosine loss between projected speech and text embeddings.
 
-    Since speech and text have different lengths, we use mean pooling
-    over time for both, then compute MSE on the pooled representations.
-    This teaches the projector to produce embeddings in the right space
-    without requiring exact length matching.
+    Following SpeechMapper (arxiv 2601.20417): text embeddings are right-padded
+    with the LLM's pad token embedding to match the speech sequence length.
+    Per-frame MSE is computed so that both direction AND scale of individual
+    frames are constrained. Speech frames beyond the text length learn to
+    map to the pad embedding, forcing the model to compress semantic content
+    into the early positions.
+
+    Loss = α·MSE_word + (1-α)·MSE_pad + γ·(1 - cosine_sim)
+    where α weights word vs pad positions and γ=100 emphasizes direction.
+
+    All embeddings are scaled by 10³ before MSE computation for numerical
+    stability (SpeechMapper Section 3.2). This shifts MSE targets to
+    single-digit magnitudes. Cosine similarity is scale-invariant so
+    unaffected.
     """
     batch_size = projected.shape[0]
-    loss = 0.0
+    mse_word_loss = 0.0
+    mse_pad_loss = 0.0
+    cos_loss = 0.0
+    alpha = 0.9  # SpeechMapper: α ∈ [1,9] scaled to [0.1,0.9]
+    SCALE = 1e3  # SpeechMapper: scale embeddings by 10³ for numerical stability
 
     for i in range(batch_size):
-        # Mean pool over valid timesteps
-        speech_pooled = projected[i, :speech_lengths[i]].mean(dim=0)  # (llm_dim,)
-        text_pooled = text_embeddings[i, :text_lengths[i]].mean(dim=0)  # (llm_dim,)
+        s_len = speech_lengths[i].item() if hasattr(speech_lengths[i], 'item') else int(speech_lengths[i])
+        t_len = text_lengths[i].item() if hasattr(text_lengths[i], 'item') else int(text_lengths[i])
 
-        loss += nn.functional.mse_loss(speech_pooled, text_pooled)
+        speech = projected[i, :s_len]      # (S, dim)
+        text = text_embeddings[i, :t_len]  # (T, dim)
 
-    return loss / batch_size
+        # Build target: [text_tokens | pad_tokens] padded to speech length
+        if t_len >= s_len:
+            # Text is longer or equal — truncate to speech length
+            target = text[:s_len]
+            n_word = s_len
+            n_pad = 0
+        else:
+            # Text is shorter — pad with pad_embedding to match speech length
+            n_word = t_len
+            n_pad = s_len - t_len
+            if pad_embedding is not None:
+                pad_block = pad_embedding.unsqueeze(0).expand(n_pad, -1).to(speech.device)
+            else:
+                # Fallback: zero padding (less effective but functional)
+                pad_block = torch.zeros(n_pad, speech.shape[1], device=speech.device)
+            target = torch.cat([text, pad_block], dim=0)  # (S, dim)
+
+        # Per-frame MSE on word positions (scaled by 10³ for numerical stability)
+        if n_word > 0:
+            mse_word_loss += nn.functional.mse_loss(
+                speech[:n_word] * SCALE, target[:n_word] * SCALE)
+
+        # Per-frame MSE on pad positions (scaled by 10³)
+        if n_pad > 0:
+            mse_pad_loss += nn.functional.mse_loss(
+                speech[n_word:] * SCALE, target[n_word:] * SCALE)
+
+        # Per-frame cosine similarity on word positions (direction alignment)
+        if n_word > 0:
+            cos_sim = nn.functional.cosine_similarity(
+                speech[:n_word], target[:n_word], dim=1,
+            )
+            cos_loss += (1.0 - cos_sim.mean())
+
+    mse_word_loss = mse_word_loss / batch_size
+    mse_pad_loss = mse_pad_loss / batch_size
+    cos_loss = cos_loss / batch_size
+
+    # SpeechMapper: Loss = α·MSE_word + (1-α)·MSE_pad + γ·cos_loss
+    return alpha * mse_word_loss + (1.0 - alpha) * mse_pad_loss + 100.0 * cos_loss
 
 
 def main():
@@ -179,6 +238,13 @@ def main():
     total_params = sum(p.numel() for p in projector.parameters() if p.requires_grad)
     print(f"Projector trainable params: {total_params:,}")
 
+    # Pad embedding for per-frame alignment loss
+    pad_embedding = dataset.pad_embedding
+    if pad_embedding is not None:
+        pad_embedding = pad_embedding.to(device)
+    else:
+        print("WARNING: Using zero-vector as pad target (re-run precompute_alignments.py for better results)")
+
     optimizer = torch.optim.AdamW(
         projector.parameters(),
         lr=float(training_config.get("learning_rate", 1e-3)),
@@ -216,8 +282,11 @@ def main():
                 # Forward: projector maps speech features → LLM embedding space
                 projected, _ = projector(speech)  # (B, T, llm_dim)
 
-                # MSE loss: projected speech should match text embeddings
-                loss = compute_alignment_loss(projected, text_emb, speech_len, text_len)
+                # Per-frame MSE + cosine loss (SpeechMapper approach)
+                loss = compute_alignment_loss(
+                    projected, text_emb, speech_len, text_len,
+                    pad_embedding=pad_embedding,
+                )
 
             optimizer.zero_grad()
             if scaler is not None:
