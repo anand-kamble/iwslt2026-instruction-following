@@ -50,9 +50,9 @@ SKIP_STAGE0="${SKIP_STAGE0:-0}"
 SKIP_UPLOAD="${SKIP_UPLOAD:-0}"
 
 STAGE0_DIR="outputs/stage0_prealign"
-STAGE1_DIR="outputs/stage1_asr"
+STAGE1_DIR="outputs/stage1_alignment"
 STAGE2_DIR="outputs/stage2_text_lora"
-STAGE3_DIR="outputs/stage3_multitask"
+STAGE3_DIR="outputs/stage3_multimodal"
 PRECOMPUTED_DIR="data/precomputed"
 ALIGNMENT_DATA="data/alignments/alignment_data.pt"
 
