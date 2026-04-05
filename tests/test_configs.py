@@ -114,16 +114,15 @@ def test_format_chat_messages():
     from src.data.utils import format_chat_messages, SPEECH_PLACEHOLDER
 
     messages = format_chat_messages("Transcribe this.", "Hello world")
-    assert len(messages) == 3
-    assert messages[0]["role"] == "system"
-    assert messages[1]["role"] == "user"
-    assert messages[2]["role"] == "assistant"
-    assert SPEECH_PLACEHOLDER in messages[1]["content"]
-    assert messages[2]["content"] == "Hello world"
+    assert len(messages) == 2
+    assert messages[0]["role"] == "user"
+    assert messages[1]["role"] == "assistant"
+    assert SPEECH_PLACEHOLDER in messages[0]["content"]
+    assert messages[1]["content"] == "Hello world"
 
     # Without response
     messages = format_chat_messages("Transcribe this.")
-    assert len(messages) == 2
+    assert len(messages) == 1
 
 
 def test_speech_projector_shapes():
@@ -133,12 +132,12 @@ def test_speech_projector_shapes():
 
     proj = SpeechProjector(speech_dim=1024, llm_dim=2560, downsample_factor=1)
     x = torch.randn(2, 100, 1024)
-    out = proj(x)
+    out, lengths = proj(x)
     assert out.shape == (2, 100, 2560)
 
     # With downsampling
     proj_ds = SpeechProjector(speech_dim=1024, llm_dim=2560, downsample_factor=4)
-    out_ds = proj_ds(x)
+    out_ds, lengths_ds = proj_ds(x)
     assert out_ds.shape == (2, 25, 2560)
 
 
@@ -173,7 +172,7 @@ def test_base_config_defaults():
         config = yaml.safe_load(f)
     # Quantization off by default (CUDA-only, enabled in CUDA-specific configs)
     assert config["training"]["load_in_4bit"] is False
-    assert config["training"]["lora_r"] == 16
+    assert config["training"]["lora_r"] == 8
     assert config["training"]["lora_alpha"] == 16
     assert config["training"]["optim"] == "adamw_torch"
 

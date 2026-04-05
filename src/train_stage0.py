@@ -14,11 +14,13 @@ Usage:
 
 import argparse
 import atexit
+import math
 import os
 import time
 
 import torch
 import torch.nn as nn
+from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import Dataset, DataLoader
 import yaml
 
@@ -125,8 +127,8 @@ def compute_alignment_loss(projected, text_embeddings, speech_lengths, text_leng
     map to the pad embedding, forcing the model to compress semantic content
     into the early positions.
 
-    Loss = α·MSE_word + (1-α)·MSE_pad + γ·(1 - cosine_sim)
-    where α weights word vs pad positions and γ=100 emphasizes direction.
+    Loss = α·MSE_word + (10-α)·MSE_pad - γ·cosine_sim
+    where α ∈ [1,9] (default 5 = equal weight) and γ=100 (direction alignment).
 
     All embeddings are scaled by 10³ before MSE computation for numerical
     stability (SpeechMapper Section 3.2). This shifts MSE targets to
@@ -137,7 +139,7 @@ def compute_alignment_loss(projected, text_embeddings, speech_lengths, text_leng
     mse_word_loss = 0.0
     mse_pad_loss = 0.0
     cos_loss = 0.0
-    alpha = 0.9  # SpeechMapper: α ∈ [1,9] scaled to [0.1,0.9]
+    alpha = 5  # SpeechMapper (arxiv 2601.20417) default: α=5 gives equal weight to word and pad
     SCALE = 1e3  # SpeechMapper: scale embeddings by 10³ for numerical stability
 
     for i in range(batch_size):
@@ -185,8 +187,8 @@ def compute_alignment_loss(projected, text_embeddings, speech_lengths, text_leng
     mse_pad_loss = mse_pad_loss / batch_size
     cos_loss = cos_loss / batch_size
 
-    # SpeechMapper: Loss = α·MSE_word + (1-α)·MSE_pad + γ·cos_loss
-    return alpha * mse_word_loss + (1.0 - alpha) * mse_pad_loss + 100.0 * cos_loss
+    # SpeechMapper: Loss = α·MSE_word + (10-α)·MSE_pad - γ·cos_sim
+    return alpha * mse_word_loss + (10 - alpha) * mse_pad_loss + 100.0 * cos_loss
 
 
 def main():
@@ -247,13 +249,27 @@ def main():
 
     optimizer = torch.optim.AdamW(
         projector.parameters(),
-        lr=float(training_config.get("learning_rate", 1e-3)),
+        lr=float(training_config.get("learning_rate", 1e-4)),
         weight_decay=float(training_config.get("weight_decay", 0.01)),
     )
 
     num_epochs = training_config.get("num_epochs", 10)
     log_steps = training_config.get("logging_steps", 10)
     save_steps = training_config.get("save_steps", 100)
+
+    # Cosine scheduler with warmup (SpeechMapper: cosine + 5% warmup)
+    total_steps = num_epochs * len(dataloader)
+    warmup_ratio = float(training_config.get("warmup_ratio", 0.05))
+    warmup_steps = int(warmup_ratio * total_steps)
+
+    def lr_lambda(step):
+        if step < warmup_steps:
+            return float(step) / float(max(1, warmup_steps))
+        progress = float(step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+        return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
+
+    scheduler = LambdaLR(optimizer, lr_lambda)
+    print(f"Cosine scheduler: {total_steps} total steps, {warmup_steps} warmup")
 
     # Enable tf32 on CUDA for faster matmuls
     if device == "cuda":
@@ -299,6 +315,7 @@ def main():
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(projector.parameters(), 1.0)
                 optimizer.step()
+            scheduler.step()
 
             epoch_loss += loss.item()
             num_batches += 1

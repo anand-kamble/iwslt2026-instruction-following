@@ -55,8 +55,7 @@ training:
   gradient_checkpointing: true
   learning_rate: 1e-5
   lr_projector: 1e-5
-  # lr_lora: 3e-4
-  lr_lora: 2e-4
+  lr_lora: 3e-4
   weight_decay: 0.1
   warmup_ratio: 0.03
   lr_scheduler_type: cosine

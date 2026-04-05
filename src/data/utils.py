@@ -88,11 +88,15 @@ def format_text_only_messages(instruction: str, response: str | None = None) -> 
 def format_chat_messages(instruction: str, response: str | None = None) -> list[dict]:
     """Format instruction and response as ChatML messages.
 
-    The speech placeholder is prepended to the user message.
+    Speech placeholder is wrapped in <speech>...</speech> boundary tags
+    following NAVER IWSLT 2025 (arxiv 2506.01808). The tags tokenize into
+    existing subwords, giving the LLM explicit modality boundary signals.
+    The <|speech|> placeholder is replaced with speech embeddings in
+    _merge_speech_and_text; the boundary tags stay as regular token embeddings.
     No system prompt — matches MCIF evaluation and Qwen3 defaults.
     """
     messages = [
-        {"role": "user", "content": f"{SPEECH_PLACEHOLDER}\n{instruction}"},
+        {"role": "user", "content": f"<speech>{SPEECH_PLACEHOLDER}</speech>\n{instruction}"},
     ]
     if response is not None:
         messages.append({"role": "assistant", "content": response})
