@@ -354,7 +354,7 @@ class SpeechLLMTemplate(Template):
             speech_features = speech_out.last_hidden_state
 
         # Project to LLM dim
-        speech_embeds = model.projector(speech_features)  # (1, T', llm_dim)
+        speech_embeds, _ = model.projector(speech_features)  # (1, T', llm_dim)
         speech_embeds = speech_embeds.to(dtype=dtype)
 
         # Handle both unbatched [seq, dim] and batched [batch, seq, dim]
