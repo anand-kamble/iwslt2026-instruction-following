@@ -214,7 +214,7 @@ def main():
 
             with torch.amp.autocast("cuda", enabled=use_amp):
                 # Forward: projector maps speech features → LLM embedding space
-                projected = projector(speech)  # (B, T, llm_dim)
+                projected, _ = projector(speech)  # (B, T, llm_dim)
 
                 # MSE loss: projected speech should match text embeddings
                 loss = compute_alignment_loss(projected, text_emb, speech_len, text_len)
