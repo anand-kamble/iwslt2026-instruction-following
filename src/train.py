@@ -370,22 +370,27 @@ def main():
 
         task_datasets = load_all_task_datasets(config)
 
-        # Wrap with precomputed features if available
+        # Wrap with precomputed features if available.
+        # Only wrap tasks that actually have .pt files (speech tasks).
+        # Text-only tasks (mt_*, qa_*) have no audio to precompute.
         if args.precomputed_dir:
             from src.data.precomputed import PrecomputedWrapper
 
-            missing = [
-                t for t in task_datasets if not os.path.isdir(os.path.join(args.precomputed_dir, t))
-            ]
-            if missing:
-                print(f"WARNING: No precomputed features for {missing}, using live encoder")
-            else:
-                for task_name in task_datasets:
-                    task_dir = os.path.join(args.precomputed_dir, task_name)
+            wrapped = 0
+            for task_name in task_datasets:
+                task_dir = os.path.join(args.precomputed_dir, task_name)
+                has_features = os.path.isdir(task_dir) and any(
+                    f.endswith(".pt") for f in os.listdir(task_dir)
+                )
+                if has_features:
                     task_datasets[task_name] = PrecomputedWrapper(
                         task_datasets[task_name], task_dir
                     )
-                print(f"Using precomputed features from {args.precomputed_dir}")
+                    wrapped += 1
+            if wrapped:
+                print(f"Using precomputed features for {wrapped}/{len(task_datasets)} tasks")
+            else:
+                print(f"WARNING: No precomputed features found in {args.precomputed_dir}")
 
         train_dataset = MultiTaskDataset(task_datasets)
         sampling_config = config.get("sampling", {})
