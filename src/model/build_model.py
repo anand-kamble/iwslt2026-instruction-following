@@ -43,7 +43,8 @@ def load_speech_encoder(model_name: str = "facebook/seamless-m4t-v2-large", devi
     # Load in float16 on CUDA — encoder is frozen, no precision needed
     load_dtype = torch.float16 if device == "cuda" else torch.float32
     full_model = SeamlessM4Tv2Model.from_pretrained(
-        model_name, torch_dtype=load_dtype,
+        model_name,
+        torch_dtype=load_dtype,
     )
 
     speech_encoder = full_model.speech_encoder
@@ -64,7 +65,7 @@ def load_llm_with_lora(
     load_in_4bit: bool = False,
     load_in_8bit: bool = False,
     no_lora: bool = False,
-    lora_r: int = 16,
+    lora_r: int = 8,
     lora_alpha: int = 16,
     lora_dropout: float = 0.0,
     target_modules: list[str] | None = None,
@@ -93,6 +94,7 @@ def load_llm_with_lora(
 
     if use_quantization:
         from transformers import BitsAndBytesConfig
+
         if load_in_4bit:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -127,8 +129,13 @@ def load_llm_with_lora(
     if not no_lora:
         if target_modules is None:
             target_modules = [
-                "q_proj", "k_proj", "v_proj", "o_proj",
-                "gate_proj", "up_proj", "down_proj",
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
             ]
         lora_config = LoraConfig(
             r=lora_r,
@@ -172,6 +179,7 @@ def load_llm_from_checkpoint(
 
     if use_quantization:
         from transformers import BitsAndBytesConfig
+
         if load_in_4bit:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(
                 load_in_4bit=True,

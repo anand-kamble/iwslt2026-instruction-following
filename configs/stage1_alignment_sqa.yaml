@@ -1,0 +1,57 @@
+# Stage 1 A.2: Projector alignment on ASR + ST + SQA (NAVER Stage A.2)
+# Extends A.1 with SQA task. Paper §5.1: task probs ASR 0.4, ST 0.35, SQA 0.25.
+# SQA language probs: en 0.4, de 0.3, it 0.3 (no zh SQA per paper).
+# Best checkpoint selected by average ST on ACL 60-60 dev.
+defaults:
+  - base
+
+task: multitask
+stage: 1
+
+tasks:
+  asr:
+    train:
+      - covost2
+      - europarlst
+  s2tt:
+    train:
+      - covost2
+      - europarlst
+    target_languages:
+      - de
+      - it
+      - zh
+  sqa:
+    train:
+      - librisqa
+    languages:
+      - en
+
+data:
+  eval:
+    - mcif
+
+sampling:
+  # Paper §5.1 A.2: ASR 0.4, ST 0.35, SQA 0.25
+  # ST: en-de 0.3, en-zh 0.4, en-it 0.3
+  # => s2tt_de = 0.35*0.3 = 0.105, s2tt_zh = 0.35*0.4 = 0.14, s2tt_it = 0.35*0.3 = 0.105
+  ratios:
+    asr: 0.40
+    s2tt_de: 0.105
+    s2tt_zh: 0.14
+    s2tt_it: 0.105
+    sqa_en: 0.25
+
+training:
+  no_lora: true
+  downsample_factor: 3
+  num_epochs: 4
+  per_device_train_batch_size: 64
+  gradient_accumulation_steps: 4
+  gradient_checkpointing: true
+  learning_rate: 1e-4
+  lr_scheduler_type: constant
+  warmup_ratio: 0.0
+  logging_steps: 10
+  save_steps: 500
+  logging_dir: ./logs/stage1_sqa

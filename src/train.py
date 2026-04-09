@@ -165,7 +165,7 @@ def main():
             load_in_4bit=training_config.get("load_in_4bit", False),
             load_in_8bit=training_config.get("load_in_8bit", False),
             no_lora=False,
-            lora_r=training_config.get("lora_r", 16),
+            lora_r=training_config.get("lora_r", 8),
             lora_alpha=training_config.get("lora_alpha", 16),
             target_modules=training_config.get("lora_target_modules"),
         )
@@ -326,7 +326,7 @@ def main():
             load_in_4bit=training_config.get("load_in_4bit", False),
             load_in_8bit=training_config.get("load_in_8bit", False),
             no_lora=no_lora,
-            lora_r=training_config.get("lora_r", 16),
+            lora_r=training_config.get("lora_r", 8),
             lora_alpha=training_config.get("lora_alpha", 16),
             target_modules=training_config.get("lora_target_modules"),
         )

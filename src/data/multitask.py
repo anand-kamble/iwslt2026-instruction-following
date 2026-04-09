@@ -247,13 +247,13 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
     # the collator can auto-detect text-only vs speech batches.
     text_interleave = config.get("text_interleave", {})
     if text_interleave:
-        from src.data.text_only import load_mt_europarlst, load_sqa_text_only
+        from src.data.text_only import load_mt_for_lang, load_sqa_text_only
 
         for speech_task, loader_spec in text_interleave.items():
             try:
                 loader_type, lang = loader_spec.split("_", 1)
                 if loader_type == "mt":
-                    ds = load_mt_europarlst(lang)
+                    ds = load_mt_for_lang(lang)
                 elif loader_type == "qa":
                     ds = load_sqa_text_only("train", lang)
                 else:

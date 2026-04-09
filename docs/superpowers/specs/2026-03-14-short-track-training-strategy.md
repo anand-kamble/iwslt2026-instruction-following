@@ -26,7 +26,7 @@ The IWSLT 2026 Instruction Following shared task requires a single model that ha
 - Apr 15: System submission
 - Apr 24: System paper (4-8 pages, ACL format)
 
-**Research basis:** Design informed by NAVER LABS IWSLT 2025 constrained system (same SeamlessM4T encoder, 3-stage training), SpeechMapper, DS2ST-LM, SLAM-ASR, and the MCIF benchmark paper.
+**Research basis:** Design informed by NAVER LABS IWSLT 2025 constrained system (same SeamlessM4T encoder, 3-stage training), DS2ST-LM, SLAM-ASR, and the MCIF benchmark paper.
 
 ## Architecture
 
@@ -45,7 +45,7 @@ Audio → Seamless M4T v2 (frozen, 1024-dim, layer 24)
 - Verified: `last_hidden_state` returns layer 24 output. Config confirms 24 layers.
 
 ### Projector (upgraded from 2-layer MLP)
-Motivated by NAVER IWSLT 2025 (4-layer Transformer, won constrained track) and SpeechMapper (CNN + 6-layer Transformer). DS2ST-LM showed simple projectors win for single tasks, but multi-task requires more capacity since LoRA alone can't carry all adaptation.
+Motivated by NAVER IWSLT 2025 (4-layer Transformer, won constrained track). DS2ST-LM showed simple projectors win for single tasks, but multi-task requires more capacity since LoRA alone can't carry all adaptation.
 
 Architecture:
 1. **Conv1d downsample**: kernel=3, stride=3. Reduces 15-20s audio from 937-1250 → 312-416 tokens. Matches NAVER's k=3 approach ("minimal quality difference vs k=2, significantly faster training").
@@ -112,7 +112,7 @@ Since the speech encoder is frozen across all stages, precompute and cache its o
 
 **Validation gate:** Run `mcif_eval -t short -l en` manually after training. ASR-WER must be < 30% (target: 15-20%) before proceeding. If it fails, debug projector alignment before continuing.
 
-**Rationale:** Projector-only alignment is the standard approach (NAVER Stage A, SLAM-ASR, SpeechMapper Stage 1). No LoRA in this stage means the LLM's multilingual and instruction-following capabilities are fully preserved. ASR-only is sufficient — SpeechMapper showed "ASR-only pretrained projector already achieves strong ST performance."
+**Rationale:** Projector-only alignment is the standard approach (NAVER Stage A, SLAM-ASR). No LoRA in this stage means the LLM's multilingual and instruction-following capabilities are fully preserved.
 
 ## Stage 2: Text LoRA Pre-training
 

@@ -1,7 +1,7 @@
 # Stage 3: Multimodal merge (all tasks with audio)
-# Following NAVER IWSLT 2025 (arxiv 2506.01808): 1K steps, effective batch 256,
-# projector LR 1e-5, LoRA LR 3e-4 (30x ratio)
-# H200 141GB: batch 16 × accum 16 = 256 (matches NAVER)
+# Paper §5.1 Stage C: 1K steps, effective batch 256,
+# projector LR 1e-5, LoRA LR 3e-4. Last checkpoint selected.
+# H200 141GB: batch 16 x accum 16 = 256 (matches paper)
 defaults:
   - base
 
@@ -12,50 +12,58 @@ stage: 3
 tasks:
   asr:
     train:
+      - covost2
       - europarlst
-    # - gigast  # uncomment after downloading GigaST
   s2tt:
     train:
+      - covost2
       - europarlst
     target_languages:
       - de
       - it
-      # - zh  # needs GigaST (EuroParlST has no EN→ZH)
+      - zh
   sqa:
     train:
       - librisqa
     languages:
       - en
+      - de
+      - it
+      - zh
   s2tsum:
     languages:
       - en
   achap:
     languages:
       - en
-    use_audio: true     # ~68GB YTSeg audio config
+    use_audio: true
 
 data: {}
 
-# Text-only interleaving (NAVER IWSLT 2025 Stage C):
+# Text-only interleaving (Paper §3):
 # "Each time we sample a task that has a textual equivalent,
 #  we also sample a batch from the corresponding textual task."
-# Maps speech task → text equivalent (loader spec: mt_LANG or qa_LANG).
-# The sampler pairs each speech batch with a text batch from the equivalent.
+# MT data: load_mt_for_lang() auto-finds EuroParlST/CoVoST2/GigaST per language.
 text_interleave:
   s2tt_de: mt_de
   s2tt_it: mt_it
+  s2tt_zh: mt_zh
   sqa_en: qa_en
+  sqa_de: qa_de
+  sqa_it: qa_it
+  sqa_zh: qa_zh
 
 sampling:
-  # NAVER Stage C (Table 13): only speech tasks have ratios.
-  # Text equivalents (MT, QA) piggyback via text_interleave pairing —
-  # each speech batch with a text pair is followed by a text batch.
-  # Base ratios (ASR 0.2, ST 0.4, SQA 0.4) adapted for S2TSUM + ACHAP.
+  # Paper Stage C base: ASR 0.2, ST 0.4, SQA 0.4 — adapted for S2TSUM + ACHAP.
   ratios:
     asr: 0.20
-    s2tt_de: 0.15
-    s2tt_it: 0.15
-    sqa_en: 0.25
+    s2tt_de: 0.10
+    s2tt_it: 0.10
+    s2tt_zh: 0.10
+    sqa_en: 0.10
+    sqa_de: 0.05
+    sqa_it: 0.05
+    sqa_zh: 0.05
     s2tsum_en: 0.10
     achap_en: 0.15
 

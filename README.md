@@ -89,7 +89,6 @@ src/
     build_model.py    Model loading (encoder, LLM, projector)
     speech_llm.py     End-to-end SpeechLLM model
   train.py            Training entry point (all stages)
-  train_stage0.py     Stage 0: MSE pre-alignment
   evaluate.py         MCIF evaluation entry point
   inference.py        Submission generation
 scripts/              SLURM job scripts, data download, smoke tests

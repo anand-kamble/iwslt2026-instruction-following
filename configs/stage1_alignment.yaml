@@ -1,8 +1,9 @@
-# Stage 1: Projector alignment on ASR + ST (NAVER Stage A)
+# Stage 1: Projector alignment on ASR + ST (NAVER Stage A.1)
 # No LoRA, LLM frozen — only projector trains.
-# Following NAVER IWSLT 2025 (arxiv 2506.01808): constant LR 1e-4,
-# effective batch 256, ASR 0.4 / ST 0.6
-# H200 141GB: batch 64 × accum 4 = 256
+# Paper §5.1: constant LR 1e-4, 4 epochs, AdamW, grad accum 16.
+# ASR data: CoVoST2 (0.8) + EuroParlST (0.2) — natural size ratio approximates this.
+# ST language probs: en-de 0.3, en-zh 0.4, en-it 0.3.
+# Best checkpoint selected by average ST on ACL 60-60 dev.
 defaults:
   - base
 
@@ -12,24 +13,30 @@ stage: 1
 tasks:
   asr:
     train:
+      - covost2
       - europarlst
   s2tt:
     train:
+      - covost2
       - europarlst
     target_languages:
       - de
       - it
+      - zh
 
 data:
   eval:
     - mcif
 
 sampling:
-  # NAVER Stage A ratios: ASR 0.4, ST 0.6 (split equally across languages)
+  # Paper §5.1 A.1: ASR ~0.4, ST ~0.6
+  # ST split by language: en-de 0.3, en-zh 0.4, en-it 0.3
+  # => s2tt_de = 0.6*0.3 = 0.18, s2tt_zh = 0.6*0.4 = 0.24, s2tt_it = 0.6*0.3 = 0.18
   ratios:
-    asr: 0.4
-    s2tt_de: 0.3
-    s2tt_it: 0.3
+    asr: 0.40
+    s2tt_de: 0.18
+    s2tt_zh: 0.24
+    s2tt_it: 0.18
 
 training:
   no_lora: true

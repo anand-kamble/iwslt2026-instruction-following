@@ -41,7 +41,9 @@ def load_mt_europarlst(target_lang: str, split: str = "train"):
         target_text = example["transcriptions"][target_lang]
         # English source in <text> tags (NAVER Table 4: Content: <text>...</text>)
         example["messages"] = format_text_only_messages(
-            instruction, target_text, source_text=en_text,
+            instruction,
+            target_text,
+            source_text=en_text,
         )
         return example
 
@@ -74,14 +76,18 @@ def load_mt_gigast(target_lang: str, split: str = "train"):
     for utt_id, translation in translations.items():
         en_text = en_transcriptions.get(utt_id, "")
         # English source in <text> tags (NAVER Table 4: Content: <text>...</text>)
-        formatted.append({
-            "messages": format_text_only_messages(
-                instruction, translation,
-                source_text=en_text if en_text else None,
-            ),
-        })
+        formatted.append(
+            {
+                "messages": format_text_only_messages(
+                    instruction,
+                    translation,
+                    source_text=en_text if en_text else None,
+                ),
+            }
+        )
 
     from datasets import Dataset
+
     return Dataset.from_list(formatted)
 
 
@@ -98,8 +104,10 @@ def load_sqa_text_only(split: str = "train", language: str = "en"):
     hf_split = split_map.get(split, split)
     ds = load_dataset(
         "ZihanZhao/LibriSQA",
-        data_files={"partI.train": "LibriSQA-PartI/LibriSQA-PartI-train.json",
-                     "partI.test": "LibriSQA-PartI/LibriSQA-PartI-test.json"},
+        data_files={
+            "partI.train": "LibriSQA-PartI/LibriSQA-PartI-train.json",
+            "partI.test": "LibriSQA-PartI/LibriSQA-PartI-test.json",
+        },
         split=hf_split,
     )
 
@@ -137,12 +145,43 @@ def _load_translated_sqa_text_only(language: str):
             answer = record["answer"]
             if not answer or answer.lower().strip() in ("unanswerable", "not answerable"):
                 answer = UNANSWERABLE[language]
-            records.append({
-                "messages": format_text_only_messages(instruction, answer),
-            })
+            records.append(
+                {
+                    "messages": format_text_only_messages(instruction, answer),
+                }
+            )
 
     from datasets import Dataset
+
     return Dataset.from_list(records)
+
+
+def load_mt_for_lang(target_lang: str, split: str = "train"):
+    """Load MT data for a target language from all available sources.
+
+    Tries EuroParlST (de, it), CoVoST2 (de, zh), and GigaST (de, zh)
+    in order, concatenating all that are found.
+    Used by Stage 3 text interleave to find MT data for any language.
+    """
+    from datasets import concatenate_datasets
+
+    datasets = []
+    for loader in [load_mt_europarlst, _try_load_mt_covost2, load_mt_gigast]:
+        try:
+            datasets.append(loader(target_lang, split))
+        except (ValueError, FileNotFoundError):
+            pass
+
+    if not datasets:
+        raise ValueError(f"No MT data available for EN->{target_lang}")
+
+    return concatenate_datasets(datasets) if len(datasets) > 1 else datasets[0]
+
+
+def _try_load_mt_covost2(target_lang: str, split: str = "train"):
+    from src.data.covost2 import load_mt_covost2
+
+    return load_mt_covost2(target_lang, split)
 
 
 def load_text_only_datasets(config: dict) -> dict[str, object]:
@@ -175,11 +214,29 @@ def load_text_only_datasets(config: dict) -> dict[str, object]:
                     key = f"mt_{lang}"
                     if key in datasets_dict:
                         from datasets import concatenate_datasets
+
                         datasets_dict[key] = concatenate_datasets([datasets_dict[key], ds])
                     else:
                         datasets_dict[key] = ds
                 except (ValueError, FileNotFoundError) as e:
                     print(f"Skipping MT GigaST {lang}: {e}")
+        elif name == "mt_covost2":
+            from src.data.covost2 import load_mt_covost2
+
+            for lang in ["de", "zh"]:
+                try:
+                    ds = load_mt_covost2(lang)
+                    if max_samples and len(ds) > max_samples:
+                        ds = ds.select(range(max_samples))
+                    key = f"mt_{lang}"
+                    if key in datasets_dict:
+                        from datasets import concatenate_datasets
+
+                        datasets_dict[key] = concatenate_datasets([datasets_dict[key], ds])
+                    else:
+                        datasets_dict[key] = ds
+                except (ValueError, FileNotFoundError) as e:
+                    print(f"Skipping MT CoVoST2 {lang}: {e}")
         elif name == "sqa_translated":
             for lang in ["de", "it", "zh"]:
                 try:

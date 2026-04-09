@@ -1,7 +1,7 @@
-# Stage 2: Text-only LoRA pre-training (MT + SQA, no audio)
-# Following NAVER IWSLT 2025: warmup 100 steps, weight_decay 0.1,
-# MT 0.6 / QA 0.4 sampling (Table 13)
-# H200 141GB: batch 40 × accum 2 = 80 (maximizes GPU utilization)
+# Stage 2: Text-only LoRA pre-training (MT + QA, no audio)
+# Paper §5.1 Stage B: 1 epoch, LR 3e-4, weight_decay 0.1, warmup 100 steps.
+# MT 0.6 / QA 0.4 sampling. Last checkpoint selected.
+# H200 141GB: batch 40 x accum 2 = 80 (matches paper effective batch of 80)
 defaults:
   - base
 
@@ -11,21 +11,21 @@ stage: 2
 data:
   train:
     - mt_europarlst
+    - mt_covost2
     - sqa_english
-    # - mt_gigast  # uncomment after downloading GigaST translations
-    # - sqa_translated  # uncomment after running translate_sqa.py
+    - sqa_translated
 
-# NAVER Stage B sampling (Table 13): MT 0.6, QA 0.4
-# Sub-ratios within MT/QA split evenly across available languages.
+# Paper §5.1 Stage B: MT 0.6, QA 0.4
+# MT split evenly across 3 languages. QA split across 4 languages.
 sampling:
   ratios:
-    mt_de: 0.30
-    mt_it: 0.30
-    qa_en: 0.40
-    # mt_zh: 0.15  # uncomment with mt_gigast
-    # qa_de: 0.10  # uncomment with sqa_translated
-    # qa_it: 0.10  # uncomment with sqa_translated
-    # qa_zh: 0.10  # uncomment with sqa_translated
+    mt_de: 0.20
+    mt_it: 0.20
+    mt_zh: 0.20
+    qa_en: 0.10
+    qa_de: 0.10
+    qa_it: 0.10
+    qa_zh: 0.10
 
 training:
   text_only: true
@@ -35,7 +35,6 @@ training:
   gradient_accumulation_steps: 2
   learning_rate: 3e-4
   weight_decay: 0.1
-  downsample_factor: 3
   warmup_steps: 100
   warmup_ratio: 0.0
   logging_steps: 10

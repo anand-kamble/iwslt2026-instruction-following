@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:H200:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-#SBATCH -t 14:00:00
+#SBATCH -t 08:00:00
 #SBATCH -J iwslt2026
 #SBATCH -o logs/%x-%j.out
 #SBATCH -e logs/%x-%j.err

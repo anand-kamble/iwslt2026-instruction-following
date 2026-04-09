@@ -1,0 +1,524 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775765468755,
+  "projectRoot": "/Users/anand/iwslt",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml"
+        ]
+      },
+      {
+        "name": "C/C++",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "Makefile"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "make build",
+    "testCommand": "make test",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": "snake_case",
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "scripts",
+      "src",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "MCIF_DATA": {
+      "path": "MCIF_DATA",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775765468740,
+      "keyFiles": []
+    },
+    "configs": {
+      "path": "configs",
+      "purpose": null,
+      "fileCount": 16,
+      "lastAccessed": 1775765468742,
+      "keyFiles": [
+        "achap.yaml",
+        "asr.yaml",
+        "base.yaml",
+        "local_stage0.yaml",
+        "local_stage1.yaml"
+      ]
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 0,
+      "lastAccessed": 1775765468743,
+      "keyFiles": []
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 0,
+      "lastAccessed": 1775765468743,
+      "keyFiles": []
+    },
+    "iwslt2026_instruction_following.egg-info": {
+      "path": "iwslt2026_instruction_following.egg-info",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1775765468743,
+      "keyFiles": [
+        "PKG-INFO",
+        "SOURCES.txt",
+        "dependency_links.txt",
+        "requires.txt",
+        "top_level.txt"
+      ]
+    },
+    "logs": {
+      "path": "logs",
+      "purpose": null,
+      "fileCount": 12,
+      "lastAccessed": 1775765468743,
+      "keyFiles": [
+        "stage1_train.log",
+        "stage1_train_v2.log",
+        "stage1_train_v3.log",
+        "stage1_train_v4.log",
+        "stage2_train.log"
+      ]
+    },
+    "mwerSegmenter": {
+      "path": "mwerSegmenter",
+      "purpose": null,
+      "fileCount": 7,
+      "lastAccessed": 1775765468744,
+      "keyFiles": [
+        "LICENSE",
+        "README",
+        "hyp2sgm.py",
+        "mwerSegmenter",
+        "normalizeTextNIST.pl"
+      ]
+    },
+    "notebooks": {
+      "path": "notebooks",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775765468744,
+      "keyFiles": []
+    },
+    "outputs": {
+      "path": "outputs",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1775765468744,
+      "keyFiles": [
+        "eval_multitask_de_short.xml",
+        "eval_multitask_en_short.xml"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 12,
+      "lastAccessed": 1775765468744,
+      "keyFiles": [
+        "diagnose_wer.py",
+        "download_data.sh",
+        "local_smoke_train.py",
+        "precompute_features.py",
+        "push_checkpoint.sh"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 8,
+      "lastAccessed": 1775765468745,
+      "keyFiles": [
+        "__init__.py",
+        "config.py",
+        "evaluate.py",
+        "evaluate_lora.py",
+        "evaluate_projector.py"
+      ]
+    },
+    "swift_plugin": {
+      "path": "swift_plugin",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1775765468745,
+      "keyFiles": [
+        "__init__.py",
+        "config.json",
+        "prepare_data.py",
+        "register.py"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 3,
+      "lastAccessed": 1775765468745,
+      "keyFiles": [
+        "__init__.py",
+        "test_configs.py",
+        "test_smoke.py"
+      ]
+    },
+    "wandb": {
+      "path": "wandb",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775765468745,
+      "keyFiles": []
+    },
+    "src/data": {
+      "path": "src/data",
+      "purpose": "Data files",
+      "fileCount": 14,
+      "lastAccessed": 1775765468746,
+      "keyFiles": [
+        "__init__.py",
+        "achap.py",
+        "asr.py"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "configs/base.yaml",
+      "accessCount": 10,
+      "lastAccessed": 1775765534921,
+      "type": "file"
+    },
+    {
+      "path": "src/data/utils.py",
+      "accessCount": 10,
+      "lastAccessed": 1775766817820,
+      "type": "file"
+    },
+    {
+      "path": "configs/stage3_multimodal.yaml",
+      "accessCount": 10,
+      "lastAccessed": 1775766935774,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 9,
+      "lastAccessed": 1775618258869,
+      "type": "directory"
+    },
+    {
+      "path": "configs/stage1_alignment.yaml",
+      "accessCount": 9,
+      "lastAccessed": 1775765523516,
+      "type": "file"
+    },
+    {
+      "path": "src/data/multitask.py",
+      "accessCount": 9,
+      "lastAccessed": 1775766882719,
+      "type": "file"
+    },
+    {
+      "path": "src/train.py",
+      "accessCount": 9,
+      "lastAccessed": 1775766911390,
+      "type": "file"
+    },
+    {
+      "path": "scripts/slurm_train.sh",
+      "accessCount": 8,
+      "lastAccessed": 1775617284393,
+      "type": "file"
+    },
+    {
+      "path": "src/model/adapters.py",
+      "accessCount": 8,
+      "lastAccessed": 1775765523234,
+      "type": "file"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-03-14-short-track-training-strategy.md",
+      "accessCount": 7,
+      "lastAccessed": 1775765518865,
+      "type": "file"
+    },
+    {
+      "path": "src/data/collator.py",
+      "accessCount": 7,
+      "lastAccessed": 1775765524645,
+      "type": "file"
+    },
+    {
+      "path": "src/data/asr.py",
+      "accessCount": 6,
+      "lastAccessed": 1775617708690,
+      "type": "file"
+    },
+    {
+      "path": "src/model/speech_llm.py",
+      "accessCount": 6,
+      "lastAccessed": 1775765517832,
+      "type": "file"
+    },
+    {
+      "path": "src/data/text_only.py",
+      "accessCount": 6,
+      "lastAccessed": 1775766849139,
+      "type": "file"
+    },
+    {
+      "path": "configs/stage0_prealign.yaml",
+      "accessCount": 5,
+      "lastAccessed": 1775615562986,
+      "type": "file"
+    },
+    {
+      "path": "scripts/train_local.sh",
+      "accessCount": 5,
+      "lastAccessed": 1775617389946,
+      "type": "file"
+    },
+    {
+      "path": "src/evaluate.py",
+      "accessCount": 5,
+      "lastAccessed": 1775765530654,
+      "type": "file"
+    },
+    {
+      "path": "scripts/precompute_alignments.py",
+      "accessCount": 4,
+      "lastAccessed": 1775615558222,
+      "type": "file"
+    },
+    {
+      "path": "src/data/s2tt.py",
+      "accessCount": 4,
+      "lastAccessed": 1775617704275,
+      "type": "file"
+    },
+    {
+      "path": "src/data/achap.py",
+      "accessCount": 4,
+      "lastAccessed": 1775617711783,
+      "type": "file"
+    },
+    {
+      "path": "src/train_stage0.py",
+      "accessCount": 3,
+      "lastAccessed": 1775615348437,
+      "type": "file"
+    },
+    {
+      "path": "src/data/gigast.py",
+      "accessCount": 3,
+      "lastAccessed": 1775615726228,
+      "type": "file"
+    },
+    {
+      "path": "src/data/sqa.py",
+      "accessCount": 3,
+      "lastAccessed": 1775617540569,
+      "type": "file"
+    },
+    {
+      "path": "src/data/s2tsum.py",
+      "accessCount": 3,
+      "lastAccessed": 1775617541099,
+      "type": "file"
+    },
+    {
+      "path": "src/data/lazy_audio.py",
+      "accessCount": 3,
+      "lastAccessed": 1775617608332,
+      "type": "file"
+    },
+    {
+      "path": "src",
+      "accessCount": 3,
+      "lastAccessed": 1775766532722,
+      "type": "directory"
+    },
+    {
+      "path": "configs/asr.yaml",
+      "accessCount": 2,
+      "lastAccessed": 1775615285888,
+      "type": "file"
+    },
+    {
+      "path": "configs/s2tt.yaml",
+      "accessCount": 2,
+      "lastAccessed": 1775615286132,
+      "type": "file"
+    },
+    {
+      "path": "scripts/test_loss.py",
+      "accessCount": 2,
+      "lastAccessed": 1775616336010,
+      "type": "file"
+    },
+    {
+      "path": "scripts/run_stage0_after_precompute.sh",
+      "accessCount": 2,
+      "lastAccessed": 1775617348094,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 2,
+      "lastAccessed": 1775617357100,
+      "type": "file"
+    },
+    {
+      "path": "scripts/precompute_features.py",
+      "accessCount": 1,
+      "lastAccessed": 1775615161547,
+      "type": "file"
+    },
+    {
+      "path": "src/data/precomputed.py",
+      "accessCount": 1,
+      "lastAccessed": 1775615183695,
+      "type": "file"
+    },
+    {
+      "path": "Makefile",
+      "accessCount": 1,
+      "lastAccessed": 1775615189112,
+      "type": "file"
+    },
+    {
+      "path": "configs/multitask_short.yaml",
+      "accessCount": 1,
+      "lastAccessed": 1775615205496,
+      "type": "file"
+    },
+    {
+      "path": "src/data/translate_sqa.py",
+      "accessCount": 1,
+      "lastAccessed": 1775615208402,
+      "type": "file"
+    },
+    {
+      "path": "scripts/download_data.sh",
+      "accessCount": 1,
+      "lastAccessed": 1775615214837,
+      "type": "file"
+    },
+    {
+      "path": "configs/sqa.yaml",
+      "accessCount": 1,
+      "lastAccessed": 1775615286420,
+      "type": "file"
+    },
+    {
+      "path": "configs/s2tsum.yaml",
+      "accessCount": 1,
+      "lastAccessed": 1775615286866,
+      "type": "file"
+    },
+    {
+      "path": "configs/achap.yaml",
+      "accessCount": 1,
+      "lastAccessed": 1775615287083,
+      "type": "file"
+    },
+    {
+      "path": "src/evaluate_projector.py",
+      "accessCount": 1,
+      "lastAccessed": 1775615371166,
+      "type": "file"
+    },
+    {
+      "path": "src/config.py",
+      "accessCount": 1,
+      "lastAccessed": 1775615371489,
+      "type": "file"
+    },
+    {
+      "path": "scripts/smoke_pipeline.py",
+      "accessCount": 1,
+      "lastAccessed": 1775615382088,
+      "type": "file"
+    },
+    {
+      "path": "src/model",
+      "accessCount": 1,
+      "lastAccessed": 1775615391015,
+      "type": "directory"
+    },
+    {
+      "path": "src/data",
+      "accessCount": 1,
+      "lastAccessed": 1775615412752,
+      "type": "directory"
+    },
+    {
+      "path": "configs/local_stage0.yaml",
+      "accessCount": 1,
+      "lastAccessed": 1775615418610,
+      "type": "file"
+    },
+    {
+      "path": "scripts/diagnose_wer.py",
+      "accessCount": 1,
+      "lastAccessed": 1775615430649,
+      "type": "file"
+    },
+    {
+      "path": "scripts/verify_europarlst_match.py",
+      "accessCount": 1,
+      "lastAccessed": 1775617727535,
+      "type": "file"
+    },
+    {
+      "path": "scripts/verify_europarlst_match_v2.py",
+      "accessCount": 1,
+      "lastAccessed": 1775618054405,
+      "type": "file"
+    },
+    {
+      "path": "configs",
+      "accessCount": 1,
+      "lastAccessed": 1775618219339,
+      "type": "directory"
+    }
+  ],
+  "userDirectives": []
+}
