@@ -10,13 +10,13 @@
 #SBATCH -e logs/%x-%j.err
 
 # =============================================================================
-# IWSLT 2026 — Full training pipeline (Stage 0 → 1 → 2 → 3) + HF upload
+# IWSLT 2026 — Full training pipeline (Stage 1 → 2 → 3) + HF upload
+# Following NAVER IWSLT 2025 (arxiv 2506.01808) 3-stage approach.
 #
 # Submit:
 #   sbatch scripts/slurm_train.sh
 #
-# Skip Stage 0 / resume from a later stage:
-#   sbatch --export=ALL,SKIP_STAGE0=1 scripts/slurm_train.sh
+# Resume from a later stage:
 #   sbatch --export=ALL,START_STAGE=3 scripts/slurm_train.sh
 #
 # Run only one stage:
@@ -30,11 +30,10 @@
 #        --cpus-per-task=8 --mem=64G -t 01:30:00 --pty bash
 #
 # Outputs:
-#   outputs/stage0_prealign/   — Stage 0 projector
-#   outputs/stage1_asr/        — Stage 1 projector
-#   outputs/stage2_text_lora/  — Stage 2 LoRA adapters
+#   outputs/stage1_alignment/  — Stage 1 projector (NAVER Stage A)
+#   outputs/stage2_text_lora/  — Stage 2 LoRA adapters (NAVER Stage B)
 #   data/precomputed/          — Pre-extracted speech features (Stage 3a)
-#   outputs/stage3_multitask/  — Stage 3 final checkpoint (uploaded to HF)
+#   outputs/stage3_multimodal/ — Stage 3 final checkpoint (NAVER Stage C, uploaded to HF)
 # =============================================================================
 
 set -euo pipefail
@@ -44,17 +43,14 @@ export HF_HOME=/scratch/atathe2/hf_cache
 
 # ── Config ───────────────────────────────────────────────────────────────────
 HF_REPO="anand-kamble/iwslt2026-stage3"
-START_STAGE="${START_STAGE:-0}"
+START_STAGE="${START_STAGE:-1}"
 END_STAGE="${END_STAGE:-99}"
-SKIP_STAGE0="${SKIP_STAGE0:-0}"
 SKIP_UPLOAD="${SKIP_UPLOAD:-0}"
 
-STAGE0_DIR="outputs/stage0_prealign"
 STAGE1_DIR="outputs/stage1_alignment"
 STAGE2_DIR="outputs/stage2_text_lora"
 STAGE3_DIR="outputs/stage3_multimodal"
 PRECOMPUTED_DIR="data/precomputed"
-ALIGNMENT_DATA="data/alignments/alignment_data.pt"
 
 # ── Wandb ────────────────────────────────────────────────────────────────────
 export WANDB_PROJECT="${WANDB_PROJECT:-iwslt2026}"
@@ -114,49 +110,15 @@ echo "Stages:      ${START_STAGE} → ${END_STAGE}"
 echo "Date:        $(date)"
 echo "============================================================"
 
-# ── Stage 0: Precompute alignments + MSE pre-alignment ──────────────────────
-if [ "$START_STAGE" -le 0 ] && [ "$END_STAGE" -ge 0 ] && [ "$SKIP_STAGE0" -eq 0 ]; then
-    _CURRENT_STAGE="stage0"
-    echo ""
-    echo "============================================================"
-    echo "STAGE 0: Precompute alignments + MSE pre-alignment"
-    echo "============================================================"
-
-    if [ ! -f "$ALIGNMENT_DATA" ]; then
-        echo "Precomputing speech features + text embeddings..."
-        python scripts/precompute_alignments.py \
-            --output_dir data/alignments
-    else
-        echo "Alignment data already exists at $ALIGNMENT_DATA, skipping precompute."
-    fi
-
-    echo "Training Stage 0 projector (MSE pre-alignment)..."
-    python src/train_stage0.py \
-        --config configs/stage0_prealign.yaml \
-        --data "$ALIGNMENT_DATA" \
-        --output_dir "$STAGE0_DIR"
-
-    echo "Stage 0 complete: $STAGE0_DIR/projector.pt"
-fi
-
-# ── Stage 1: Projector alignment on ASR ──────────────────────────────────────
+# ── Stage 1: Projector alignment on ASR (NAVER Stage A) ──────────────────────
 if [ "$START_STAGE" -le 1 ] && [ "$END_STAGE" -ge 1 ]; then
     _CURRENT_STAGE="stage1"
     echo ""
     echo "============================================================"
-    echo "STAGE 1: Projector alignment (ASR, LLM frozen)"
+    echo "STAGE 1: Projector alignment — NAVER Stage A (ASR, LLM frozen)"
     echo "============================================================"
 
-    STAGE1_ARGS=(
-        --config configs/stage1_alignment.yaml
-    )
-
-    if [ -f "$STAGE0_DIR/projector.pt" ]; then
-        STAGE1_ARGS+=(--stage1_checkpoint "$STAGE0_DIR")
-        echo "Warm-starting from Stage 0 projector"
-    fi
-
-    python src/train.py "${STAGE1_ARGS[@]}"
+    python src/train.py --config configs/stage1_alignment.yaml
     echo "Stage 1 complete: $STAGE1_DIR"
 fi
 

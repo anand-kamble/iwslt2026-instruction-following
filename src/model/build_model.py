@@ -12,7 +12,7 @@ Supports both CUDA and MPS (Apple Silicon):
 import torch
 import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor, SeamlessM4Tv2Model
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
 from src.model.adapters import SpeechProjector, TransformerProjector
 
@@ -98,6 +98,7 @@ def load_llm_with_lora(
                 load_in_4bit=True,
                 bnb_4bit_compute_dtype=torch.bfloat16,
                 bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
             )
         elif load_in_8bit:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
@@ -116,6 +117,12 @@ def load_llm_with_lora(
     # Move to device if not already placed (device_map handles CUDA, manual for MPS/CPU)
     if not use_quantization and device != "cuda":
         model = model.to(device)
+
+    # Prepare quantized model for training: casts LayerNorm to float32,
+    # enables input gradients on the quantized model.
+    # Ref: https://github.com/huggingface/peft/blob/main/docs/source/developer_guides/quantization.md
+    if use_quantization:
+        model = prepare_model_for_kbit_training(model)
 
     if not no_lora:
         if target_modules is None:
@@ -170,6 +177,7 @@ def load_llm_from_checkpoint(
                 load_in_4bit=True,
                 bnb_4bit_compute_dtype=torch.bfloat16,
                 bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
             )
         elif load_in_8bit:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
@@ -185,6 +193,10 @@ def load_llm_from_checkpoint(
     base_model = AutoModelForCausalLM.from_pretrained(base_model_name, **model_kwargs)
     if len(tokenizer) != base_model.config.vocab_size:
         base_model.resize_token_embeddings(len(tokenizer))
+
+    # Prepare quantized model for training (same as load_llm_with_lora)
+    if use_quantization and is_trainable:
+        base_model = prepare_model_for_kbit_training(base_model)
 
     # Apply saved LoRA adapters (trainable for continued fine-tuning)
     model = PeftModel.from_pretrained(base_model, checkpoint_dir, is_trainable=is_trainable)

@@ -14,7 +14,12 @@ import torch
 from transformers import TrainingArguments, Trainer, TrainerCallback
 
 from src.config import load_config
-from src.model.build_model import load_speech_encoder, load_llm_with_lora, build_projector, get_device
+from src.model.build_model import (
+    load_speech_encoder,
+    load_llm_with_lora,
+    build_projector,
+    get_device,
+)
 from src.model.speech_llm import SpeechLLM, SPEECH_PLACEHOLDER
 from src.data.collator import SpeechTextCollator
 
@@ -27,6 +32,7 @@ class WandbConfigCallback(TrainerCallback):
 
     def on_train_begin(self, args, state, control, **kwargs):
         import wandb
+
         if wandb.run is not None:
             wandb.config.update({"pipeline": self.config}, allow_val_change=True)
 
@@ -55,6 +61,7 @@ def load_task_datasets(config: dict):
 
     if task == "asr":
         from src.data.asr import load_asr_dataset
+
         max_samples = config.get("data", {}).get("max_samples")
         train_datasets = []
         for ds_name in config["data"]["train"]:
@@ -63,6 +70,7 @@ def load_task_datasets(config: dict):
 
     elif task == "s2tt":
         from src.data.s2tt import load_s2tt_dataset
+
         train_datasets = []
         for ds_name in config["data"]["train"]:
             for lang in config["target_languages"]:
@@ -74,14 +82,17 @@ def load_task_datasets(config: dict):
 
     elif task == "sqa":
         from src.data.sqa import load_sqa_dataset
+
         return [load_sqa_dataset("train")]
 
     elif task == "s2tsum":
         from src.data.s2tsum import load_s2tsum_dataset
+
         return [load_s2tsum_dataset("train")]
 
     elif task == "achap":
         from src.data.achap import load_achap_dataset
+
         languages = config.get("languages", ["en"])
         train_datasets = []
         for lang in languages:
@@ -97,12 +108,18 @@ def main():
     parser.add_argument("--config", type=str, required=True, help="Path to task config YAML")
     parser.add_argument("--output_dir", type=str, default=None, help="Override output directory")
     parser.add_argument("--resume_from", type=str, default=None, help="Resume from checkpoint")
-    parser.add_argument("--stage1_checkpoint", type=str, default=None,
-                        help="Load projector weights from Stage 1")
-    parser.add_argument("--stage2_checkpoint", type=str, default=None,
-                        help="Load LoRA weights from Stage 2")
-    parser.add_argument("--precomputed_dir", type=str, default=None,
-                        help="Dir with pre-extracted speech features (from extract_features.py)")
+    parser.add_argument(
+        "--stage1_checkpoint", type=str, default=None, help="Load projector weights from Stage 1"
+    )
+    parser.add_argument(
+        "--stage2_checkpoint", type=str, default=None, help="Load LoRA weights from Stage 2"
+    )
+    parser.add_argument(
+        "--precomputed_dir",
+        type=str,
+        default=None,
+        help="Dir with pre-extracted speech features (from extract_features.py)",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -133,6 +150,7 @@ def main():
         os.environ["WANDB_WATCH"] = "false"
         report_to = "wandb"
         from datetime import datetime
+
         run_name = f"{config_name}_{datetime.now().strftime('%m%d_%H%M')}"
     else:
         report_to = "tensorboard"
@@ -153,16 +171,38 @@ def main():
         )
 
         from src.data.text_only import load_text_only_datasets
-        from datasets import concatenate_datasets
 
-        train_datasets = load_text_only_datasets(config)
-        if not train_datasets:
+        task_datasets = load_text_only_datasets(config)
+        if not task_datasets:
             raise RuntimeError("No text-only datasets loaded")
-        train_dataset = concatenate_datasets(train_datasets)
+
+        # Use MultiTaskDataset + TemperatureSampler when sampling ratios are
+        # configured (NAVER Stage B: MT 0.6, QA 0.4), otherwise concatenate.
+        sampling_config = config.get("sampling", {})
+        stage2_ratios = sampling_config.get("ratios")
+        stage2_sampler = None
+
+        if stage2_ratios:
+            from src.data.multitask import MultiTaskDataset, TemperatureSampler
+
+            train_dataset = MultiTaskDataset(task_datasets)
+            stage2_sampler = TemperatureSampler(
+                train_dataset,
+                ratios=stage2_ratios,
+                seed=training_config.get("seed", 42),
+                batch_size=training_config.get("per_device_train_batch_size", 8),
+            )
+            print(f"Text-only sampling: ratios={stage2_ratios}")
+        else:
+            from datasets import concatenate_datasets
+
+            train_dataset = concatenate_datasets(list(task_datasets.values()))
+
         print(f"Text-only training samples: {len(train_dataset)}")
 
         collator = SpeechTextCollator(
-            processor=None, tokenizer=tokenizer,
+            processor=None,
+            tokenizer=tokenizer,
             max_seq_length=training_config.get("max_seq_length", 4096),
             text_only=True,
         )
@@ -201,10 +241,58 @@ def main():
         callbacks = [WandbConfigCallback(config)] if report_to == "wandb" else []
 
         trainer = Trainer(
-            model=llm, args=training_args,
-            train_dataset=train_dataset, data_collator=collator,
+            model=llm,
+            args=training_args,
+            train_dataset=train_dataset,
+            data_collator=collator,
             callbacks=callbacks,
         )
+        if stage2_sampler is not None:
+            trainer._get_train_sampler = lambda *args, **kwargs: stage2_sampler
+
+            from collections import defaultdict
+
+            class _Stage2LossCallback(TrainerCallback):
+                def __init__(self):
+                    self.task_losses = defaultdict(list)
+
+                def on_log(self, args, state, control, logs=None, **kwargs):
+                    if not self.task_losses:
+                        return
+                    import wandb
+
+                    if wandb.run is None:
+                        return
+                    task_logs = {}
+                    for task, losses in self.task_losses.items():
+                        task_logs[f"train/loss_{task}"] = sum(losses) / len(losses)
+                    wandb.log(task_logs, step=state.global_step)
+                    self.task_losses.clear()
+
+            stage2_loss_cb = _Stage2LossCallback()
+            trainer.add_callback(stage2_loss_cb)
+
+            original_compute_loss = trainer.compute_loss
+
+            def compute_loss_with_task_tracking(
+                model, inputs, return_outputs=False, num_items_in_batch=None
+            ):
+                tasks = inputs.pop("_tasks", None)
+                result = original_compute_loss(
+                    model,
+                    inputs,
+                    return_outputs=return_outputs,
+                    num_items_in_batch=num_items_in_batch,
+                )
+                if tasks:
+                    loss = result[0] if return_outputs else result
+                    unique = set(t for t in tasks if t)
+                    task = next(iter(unique)) if len(unique) == 1 else "mixed"
+                    stage2_loss_cb.task_losses[task].append(loss.detach().item())
+                return result
+
+            trainer.compute_loss = compute_loss_with_task_tracking
+
         trainer.train()
 
         llm.save_pretrained(os.path.join(output_dir, "lora_adapters"))
@@ -222,6 +310,7 @@ def main():
     llm_config = config.get("model", {})
     if args.stage2_checkpoint:
         from src.model.build_model import load_llm_from_checkpoint
+
         lora_path = os.path.join(args.stage2_checkpoint, "lora_adapters")
         print(f"Loading LLM with Stage 2 LoRA from {lora_path}")
         llm, tokenizer = load_llm_from_checkpoint(
@@ -278,29 +367,47 @@ def main():
 
     if config["task"] == "multitask":
         from src.data.multitask import MultiTaskDataset, TemperatureSampler, load_all_task_datasets
+
         task_datasets = load_all_task_datasets(config)
 
         # Wrap with precomputed features if available
         if args.precomputed_dir:
             from src.data.precomputed import PrecomputedWrapper
-            missing = [t for t in task_datasets if not os.path.isdir(os.path.join(args.precomputed_dir, t))]
+
+            missing = [
+                t for t in task_datasets if not os.path.isdir(os.path.join(args.precomputed_dir, t))
+            ]
             if missing:
                 print(f"WARNING: No precomputed features for {missing}, using live encoder")
             else:
                 for task_name in task_datasets:
                     task_dir = os.path.join(args.precomputed_dir, task_name)
-                    task_datasets[task_name] = PrecomputedWrapper(task_datasets[task_name], task_dir)
+                    task_datasets[task_name] = PrecomputedWrapper(
+                        task_datasets[task_name], task_dir
+                    )
                 print(f"Using precomputed features from {args.precomputed_dir}")
 
         train_dataset = MultiTaskDataset(task_datasets)
         sampling_config = config.get("sampling", {})
         temperature = sampling_config.get("temperature", 0.5)
         ratios = sampling_config.get("ratios")
+
+        # Paired text interleaving (NAVER Stage C): text_interleave maps
+        # speech tasks to their text equivalents (e.g. s2tt_de → mt_de).
+        # The sampler yields a text batch after each paired speech batch.
+        text_interleave = config.get("text_interleave", {})
+        text_pairs = {speech: text for speech, text in text_interleave.items()}
+
         sampler = TemperatureSampler(
-            train_dataset, temperature=temperature,
+            train_dataset,
+            temperature=temperature,
             ratios=ratios,
+            text_pairs=text_pairs if text_pairs else None,
             seed=training_config.get("seed", 42),
+            batch_size=training_config.get("per_device_train_batch_size", 1),
         )
+        if text_pairs:
+            print(f"Multi-task sampling: text pairs={text_pairs}")
         if ratios:
             print(f"Multi-task sampling: explicit ratios={ratios}")
         else:
@@ -309,6 +416,7 @@ def main():
         train_datasets = load_task_datasets(config)
         if len(train_datasets) > 1:
             from datasets import concatenate_datasets
+
             train_dataset = concatenate_datasets(train_datasets)
         else:
             train_dataset = train_datasets[0]
@@ -357,8 +465,10 @@ def main():
     callbacks = [WandbConfigCallback(config)] if report_to == "wandb" else []
 
     trainer_kwargs = dict(
-        model=model, args=training_args,
-        train_dataset=train_dataset, data_collator=collator,
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        data_collator=collator,
         callbacks=callbacks,
     )
 
@@ -377,8 +487,7 @@ def main():
             projector_params = list(model.projector.parameters())
             projector_ids = {id(p) for p in projector_params}
             other_params = [
-                p for p in model.parameters()
-                if p.requires_grad and id(p) not in projector_ids
+                p for p in model.parameters() if p.requires_grad and id(p) not in projector_ids
             ]
 
             assert projector_params, "No projector parameters found — is projector frozen?"
@@ -387,11 +496,14 @@ def main():
             # Use fused AdamW on CUDA for better kernel fusion
             use_fused = get_device() == "cuda"
             from torch.optim import AdamW
+
             wd = float(training_config.get("weight_decay", 0.0))
+            # LoRA first so HF Trainer's default `learning_rate` metric shows
+            # the LoRA LR (cosine decay) instead of the projector LR (constant).
             optimizer = AdamW(
                 [
-                    {"params": projector_params, "lr": float(lr_projector)},
                     {"params": other_params, "lr": float(lr_lora)},
+                    {"params": projector_params, "lr": float(lr_projector)},
                 ],
                 weight_decay=wd,
                 fused=use_fused,
@@ -410,10 +522,11 @@ def main():
                 if trainer.optimizer is None:
                     return
                 import wandb
+
                 if wandb.run is None:
                     return
                 lr_logs = {}
-                for i, name in enumerate(["projector", "lora"]):
+                for i, name in enumerate(["lora", "projector"]):
                     if i < len(trainer.optimizer.param_groups):
                         lr_logs[f"train/lr_{name}"] = trainer.optimizer.param_groups[i]["lr"]
                 if lr_logs:
@@ -450,7 +563,7 @@ def main():
                         return max(0.0, 1.0 - progress)
                     return 1.0  # fallback: constant
 
-                scheduler = LambdaLR(opt, [projector_lambda, lora_lambda])
+                scheduler = LambdaLR(opt, [lora_lambda, projector_lambda])
                 trainer.lr_scheduler = scheduler
                 return scheduler
 
@@ -470,6 +583,7 @@ def main():
                 if not self.task_losses:
                     return
                 import wandb
+
                 if wandb.run is None:
                     return
                 task_logs = {}
@@ -483,10 +597,14 @@ def main():
 
         original_compute_loss = trainer.compute_loss
 
-        def compute_loss_with_task_tracking(model, inputs, return_outputs=False, num_items_in_batch=None):
+        def compute_loss_with_task_tracking(
+            model, inputs, return_outputs=False, num_items_in_batch=None
+        ):
             tasks = inputs.pop("_tasks", None)
             result = original_compute_loss(
-                model, inputs, return_outputs=return_outputs,
+                model,
+                inputs,
+                return_outputs=return_outputs,
                 num_items_in_batch=num_items_in_batch,
             )
             if tasks:
@@ -511,7 +629,10 @@ def main():
 
     # Push to hub if configured
     hub_config = config.get("hub", {})
-    if hub_config.get("push_to_hub", False) and hub_config.get("organization", "YOUR_HF_ORG") != "YOUR_HF_ORG":
+    if (
+        hub_config.get("push_to_hub", False)
+        and hub_config.get("organization", "YOUR_HF_ORG") != "YOUR_HF_ORG"
+    ):
         repo_id = f"{hub_config['organization']}/iwslt2026-{task_label}"
         print(f"Pushing to {repo_id}...")
         if not no_lora:

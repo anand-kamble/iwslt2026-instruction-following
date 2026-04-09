@@ -39,9 +39,10 @@ def load_mt_europarlst(target_lang: str, split: str = "train"):
         instruction = TASK_PROMPTS["s2tt"][target_lang]
         en_text = example["transcriptions"]["en"]
         target_text = example["transcriptions"][target_lang]
-        # Include English source so the model learns translation, not just generation
-        full_instruction = f"{instruction}\n\n{en_text}"
-        example["messages"] = format_text_only_messages(full_instruction, target_text)
+        # English source in <text> tags (NAVER Table 4: Content: <text>...</text>)
+        example["messages"] = format_text_only_messages(
+            instruction, target_text, source_text=en_text,
+        )
         return example
 
     ds = ds.map(_format, num_proc=8)
@@ -72,9 +73,12 @@ def load_mt_gigast(target_lang: str, split: str = "train"):
     instruction = TASK_PROMPTS["s2tt"][target_lang]
     for utt_id, translation in translations.items():
         en_text = en_transcriptions.get(utt_id, "")
-        full_instruction = f"{instruction}\n\n{en_text}" if en_text else instruction
+        # English source in <text> tags (NAVER Table 4: Content: <text>...</text>)
         formatted.append({
-            "messages": format_text_only_messages(full_instruction, translation),
+            "messages": format_text_only_messages(
+                instruction, translation,
+                source_text=en_text if en_text else None,
+            ),
         })
 
     from datasets import Dataset
@@ -141,12 +145,13 @@ def _load_translated_sqa_text_only(language: str):
     return Dataset.from_list(records)
 
 
-def load_text_only_datasets(config: dict):
+def load_text_only_datasets(config: dict) -> dict[str, object]:
     """Load all text-only datasets for Stage 2.
 
-    Returns a list of datasets.  Respects data.max_samples if set.
+    Returns a dict mapping task names (e.g. 'mt_de', 'qa_en') to datasets.
+    Respects data.max_samples if set.
     """
-    datasets_list = []
+    datasets_dict: dict[str, object] = {}
     data_names = config.get("data", {}).get("train", [])
     max_samples = config.get("data", {}).get("max_samples")
 
@@ -157,7 +162,7 @@ def load_text_only_datasets(config: dict):
                     ds = load_mt_europarlst(lang)
                     if max_samples and len(ds) > max_samples:
                         ds = ds.select(range(max_samples))
-                    datasets_list.append(ds)
+                    datasets_dict[f"mt_{lang}"] = ds
                 except (ValueError, FileNotFoundError) as e:
                     print(f"Skipping MT EuroParlST {lang}: {e}")
         elif name == "mt_gigast":
@@ -166,7 +171,13 @@ def load_text_only_datasets(config: dict):
                     ds = load_mt_gigast(lang)
                     if max_samples and len(ds) > max_samples:
                         ds = ds.select(range(max_samples))
-                    datasets_list.append(ds)
+                    # Merge with existing MT for that language if present
+                    key = f"mt_{lang}"
+                    if key in datasets_dict:
+                        from datasets import concatenate_datasets
+                        datasets_dict[key] = concatenate_datasets([datasets_dict[key], ds])
+                    else:
+                        datasets_dict[key] = ds
                 except (ValueError, FileNotFoundError) as e:
                     print(f"Skipping MT GigaST {lang}: {e}")
         elif name == "sqa_translated":
@@ -175,15 +186,15 @@ def load_text_only_datasets(config: dict):
                     ds = load_sqa_text_only("train", lang)
                     if max_samples and len(ds) > max_samples:
                         ds = ds.select(range(max_samples))
-                    datasets_list.append(ds)
+                    datasets_dict[f"qa_{lang}"] = ds
                 except (ValueError, FileNotFoundError) as e:
                     print(f"Skipping SQA translated {lang}: {e}")
         elif name == "sqa_english":
             ds = load_sqa_text_only("train", "en")
             if max_samples and len(ds) > max_samples:
                 ds = ds.select(range(max_samples))
-            datasets_list.append(ds)
+            datasets_dict["qa_en"] = ds
         else:
             print(f"Unknown text-only dataset: {name}")
 
-    return datasets_list
+    return datasets_dict

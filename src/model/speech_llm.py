@@ -111,25 +111,39 @@ class SpeechLLM(nn.Module):
 
     def forward(
         self,
-        input_features,
-        input_features_attention_mask,
-        input_ids,
-        attention_mask,
+        input_features=None,
+        input_features_attention_mask=None,
+        input_ids=None,
+        attention_mask=None,
         labels=None,
     ):
         """Forward pass for training.
 
-        This replaces SPEECH_PLACEHOLDER tokens in the input with projected
-        speech features from the encoder.
+        Supports two modes:
+        - Speech + text: replaces SPEECH_PLACEHOLDER tokens with projected speech features
+        - Text-only: standard LLM forward (for interleaved text batches in Stage 3)
 
         Args:
-            input_features: (batch, audio_seq, 160) — audio mel features
+            input_features: (batch, audio_seq, 160) — audio mel features (None for text-only)
             input_features_attention_mask: (batch, audio_seq) — audio mask
             input_ids: (batch, text_seq) — tokenized instruction + response
             attention_mask: (batch, text_seq) — text attention mask
             labels: (batch, text_seq) — labels for language modeling loss
         """
         device = self.device
+
+        # Text-only forward (no audio) — used for interleaved text batches
+        if input_features is None:
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
+            if labels is not None:
+                labels = labels.to(device)
+            return self.llm(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels,
+            )
+
         if input_features.device != device:
             input_features = input_features.to(device)
             input_features_attention_mask = input_features_attention_mask.to(device)

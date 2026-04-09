@@ -85,7 +85,7 @@ def run_inference_on_mcif(model, processor, tokenizer, task: str, language: str,
     ds = load_dataset("FBK-MT/MCIF", config_name, split="test")
 
     prompt_key = f"prompt_{language}"
-    samples = []
+    per_segment_results = []
     total = len(ds)
 
     for i, example in enumerate(ds):
@@ -119,12 +119,16 @@ def run_inference_on_mcif(model, processor, tokenizer, task: str, language: str,
             input_features_attention_mask=audio_inputs["attention_mask"],
             input_ids=text_inputs["input_ids"],
             attention_mask=text_inputs["attention_mask"],
-            max_new_tokens=512,
+            max_new_tokens=300,
             do_sample=False,
         )
 
         output_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        samples.append(OutputSample(id=example["id"], value=output_text))
+        is_asr = _is_asr_prompt(instruction)
+        per_segment_results.append((example["id"], output_text, is_asr))
+
+    # Output individual samples — mcif_eval handles ASR grouping internally
+    samples = [OutputSample(id=sid, value=text) for sid, text, _ in per_segment_results]
 
     # Write output XML
     output_path = f"outputs/eval_{task}_{language}_{track}.xml"

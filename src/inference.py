@@ -28,7 +28,7 @@ def run_inference(
     instruction: str = "",
     audio_array=None,
     sample_rate: int = 16000,
-    max_new_tokens: int = 512,
+    max_new_tokens: int = 150,
 ) -> str:
     """Run inference on a single audio + instruction pair.
 
@@ -67,7 +67,6 @@ def run_inference(
         attention_mask=text_inputs["attention_mask"],
         max_new_tokens=max_new_tokens,
         do_sample=False,
-        repetition_penalty=1.1,
     )
 
     return tokenizer.decode(output_ids[0], skip_special_tokens=True)
@@ -94,7 +93,7 @@ def run_mcif_submission(model, processor, tokenizer, output_dir, languages, trac
                 instruction=instruction,
                 audio_array=example["audio"]["array"],
                 sample_rate=example["audio"].get("sampling_rate", 16000),
-                max_new_tokens=512,
+                max_new_tokens=150,
             )
             samples.append(OutputSample(id=example["id"], value=output_text))
 

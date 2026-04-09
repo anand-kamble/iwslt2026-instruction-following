@@ -1,25 +1,21 @@
 #!/bin/bash
 # =============================================================================
-# Local smoke-run of the full training pipeline (Stage 0 → 1 → 2 → 3)
+# Local smoke-run of the full training pipeline (Stage 1 → 2 → 3)
 # Uses 20 samples, 1 epoch, tiny batches — runs on CPU/MPS, no GPU required.
 #
 # Usage:
 #   bash scripts/train_local.sh            # run all stages
-#   START_STAGE=1 bash scripts/train_local.sh   # skip stage 0
 #   START_STAGE=2 END_STAGE=2 bash scripts/train_local.sh  # only stage 2
 # =============================================================================
 
 set -euo pipefail
 
-START_STAGE="${START_STAGE:-0}"
+START_STAGE="${START_STAGE:-1}"
 END_STAGE="${END_STAGE:-3}"
-SKIP_STAGE0="${SKIP_STAGE0:-0}"
 
-STAGE0_DIR="outputs/local_stage0"
 STAGE1_DIR="outputs/local/stage1_asr"
 STAGE2_DIR="outputs/local/stage2_text_lora"
 STAGE3_DIR="outputs/local/stage3_multitask"
-ALIGNMENT_DATA="data/alignments/local_alignment_data.pt"
 
 export WANDB_MODE=disabled
 
@@ -38,50 +34,14 @@ echo "Stages:  ${START_STAGE} → ${END_STAGE}"
 echo "Date:    $(date)"
 echo "============================================================"
 
-# ── Stage 0: Precompute alignments + MSE pre-alignment ──────────────────────
-if [ "$START_STAGE" -le 0 ] && [ "$END_STAGE" -ge 0 ] && [ "$SKIP_STAGE0" -eq 0 ]; then
-    echo ""
-    echo "============================================================"
-    echo "STAGE 0: Precompute alignments + MSE pre-alignment (20 samples)"
-    echo "============================================================"
-
-    if [ ! -f "$ALIGNMENT_DATA" ]; then
-        echo "Precomputing speech features + text embeddings..."
-        python scripts/precompute_alignments.py \
-            --output_dir data/alignments \
-            --max_samples 20
-        # Rename to local-specific name
-        mv data/alignments/alignment_data.pt "$ALIGNMENT_DATA"
-    else
-        echo "Alignment data already exists at $ALIGNMENT_DATA, skipping precompute."
-    fi
-
-    echo "Training Stage 0 projector (MSE pre-alignment)..."
-    python src/train_stage0.py \
-        --config configs/local_stage0.yaml \
-        --data "$ALIGNMENT_DATA" \
-        --output_dir "$STAGE0_DIR"
-
-    echo "Stage 0 complete: $STAGE0_DIR/projector.pt"
-fi
-
-# ── Stage 1: Projector alignment on ASR ──────────────────────────────────────
+# ── Stage 1: Projector alignment on ASR (NAVER Stage A) ─────────────────────
 if [ "$START_STAGE" -le 1 ] && [ "$END_STAGE" -ge 1 ]; then
     echo ""
     echo "============================================================"
     echo "STAGE 1: Projector alignment (ASR, LLM frozen, 20 samples)"
     echo "============================================================"
 
-    STAGE1_ARGS=(
-        --config configs/local_stage1.yaml
-    )
-
-    if [ -f "$STAGE0_DIR/projector.pt" ]; then
-        STAGE1_ARGS+=(--stage1_checkpoint "$STAGE0_DIR")
-        echo "Warm-starting from Stage 0 projector"
-    fi
-
-    python src/train.py "${STAGE1_ARGS[@]}"
+    python src/train.py --config configs/local_stage1.yaml
     echo "Stage 1 complete: $STAGE1_DIR"
 fi
 

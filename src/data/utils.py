@@ -29,33 +29,37 @@ def load_audio(path: str | Path, target_sr: int = 16000):
     return waveform, target_sr
 
 
-# MCIF fixed prompts per task and language
+# Task prompts following NAVER IWSLT 2025 (arxiv 2506.01808, Table 4).
+# Prompt text only — structural prefixes (Content:, Question:, Your answer:)
+# are added by format_chat_messages / format_text_only_messages.
 TASK_PROMPTS = {
     "asr": {
-        "en": "Transcribe the English content.",
+        "en": "Can you transcribe the Speech content into English text?",
     },
     "s2tt": {
-        "de": "Übersetze den englischem Inhalt nach Deutsch.",
-        "it": "Traduci il contenuto inglese in italiano.",
-        "zh": "将英文内容翻译成中文。",
+        # Exact NAVER prompts (Table 4): translated via SeamlessM4T-v2-large
+        "de": "Können Sie den Inhalt der Rede in den deutschen Text übersetzen?",
+        "it": "Puoi tradurre il contenuto del discorso in testo italiano?",
+        "zh": "你能把演讲内容翻译成中文吗?",
     },
     "sqa": {
-        "en": "Answer the following question concisely given the English content: {QUESTION}",
-        "de": "Beantworte die folgende Frage kurz und bündig basierend auf dem englischen Inhalt: {QUESTION}",
-        "it": "Rispondi in modo conciso alla seguente domanda dato il contenuto inglese: {QUESTION}",
-        "zh": "根据所给的英文内容，简要回答以下问题： {QUESTION}",
+        # NAVER SQA: question IS the instruction (Table 4)
+        "en": "{QUESTION}",
+        "de": "{QUESTION}",
+        "it": "{QUESTION}",
+        "zh": "{QUESTION}",
     },
     "s2tsum": {
-        "en": "Summarize the English content in an abstract of approximately 200 words.",
-        "de": "Fasse den englischen Inhalt in einem Abstract mit ungefähr 200 Wörtern zusammen.",
-        "it": "Riassumi il contenuto inglese in un abstract di circa 200 parole.",
-        "zh": "用400个字左右概括所给的英语内容。",
+        "en": "Can you summarize the Speech content in an abstract of approximately 200 words?",
+        "de": "Können Sie den Inhalt der Rede in einem Abstract von ungefähr 200 Wörtern zusammenfassen?",
+        "it": "Puoi riassumere il contenuto del discorso in un abstract di circa 200 parole?",
+        "zh": "你能用大约400个字概括演讲内容吗?",
     },
     "achap": {
-        "en": "Identify the chapters and their titles in the English content.",
-        "de": "Identifiziere die Kapitel und ihre Titel im englischen Inhalt.",
-        "it": "Identifica i capitoli e i loro titoli nel contenuto inglese.",
-        "zh": "识别英文内容中的章节及其标题。",
+        "en": "Can you identify the chapters and their titles in the Speech content?",
+        "de": "Können Sie die Kapitel und ihre Titel im Inhalt der Rede identifizieren?",
+        "it": "Puoi identificare i capitoli e i loro titoli nel contenuto del discorso?",
+        "zh": "你能识别演讲内容中的章节及其标题吗?",
     },
 }
 
@@ -71,33 +75,53 @@ UNANSWERABLE = {
 SPEECH_PLACEHOLDER = "<|speech|>"
 
 
-def format_text_only_messages(instruction: str, response: str | None = None) -> list[dict]:
-    """Format instruction and response as ChatML messages WITHOUT speech placeholder.
+def format_text_only_messages(
+    instruction: str, response: str | None = None, source_text: str | None = None,
+) -> list[dict]:
+    """Format text-only instruction as ChatML messages (NAVER Table 4 format).
 
-    Used for Stage 2 text-only LoRA training.
-    No system prompt — matches MCIF evaluation and Qwen3 defaults.
+    Used for Stage 2 text-only LoRA training and Stage 3 text interleaving.
+    Follows NAVER IWSLT 2025 (arxiv 2506.01808) template:
+        Content: <text>[source text]</text>
+        Question: [instruction]
+        Your answer:
+
+    Args:
+        instruction: Task instruction (e.g., translation prompt, question).
+        response: Expected output (assistant turn). None for inference.
+        source_text: English transcript or context for <text> tags.
+            If provided, wrapped as Content: <text>...</text>.
     """
-    messages = [
-        {"role": "user", "content": instruction},
-    ]
+    if source_text:
+        content = f"Content: <text>{source_text}</text>\nQuestion: {instruction}\nYour answer:"
+    else:
+        content = f"Question: {instruction}\nYour answer:"
+    messages = [{"role": "user", "content": content}]
     if response is not None:
         messages.append({"role": "assistant", "content": response})
     return messages
 
 
 def format_chat_messages(instruction: str, response: str | None = None) -> list[dict]:
-    """Format instruction and response as ChatML messages.
+    """Format speech + instruction as ChatML messages (NAVER Table 4 format).
 
-    Speech placeholder is wrapped in <speech>...</speech> boundary tags
-    following NAVER IWSLT 2025 (arxiv 2506.01808). The tags tokenize into
-    existing subwords, giving the LLM explicit modality boundary signals.
+    Follows NAVER IWSLT 2025 (arxiv 2506.01808) prompt template:
+        Content: <speech>[SPEECH EMBEDDINGS]</speech>
+        Question: [instruction]
+        Your answer:
+
+    The <speech>/<text> boundary tags and Content:/Question:/Your answer:
+    structural prefixes give the model consistent parsing cues across tasks.
     The <|speech|> placeholder is replaced with speech embeddings in
-    _merge_speech_and_text; the boundary tags stay as regular token embeddings.
+    _merge_speech_and_text; boundary tags stay as regular token embeddings.
     No system prompt — matches MCIF evaluation and Qwen3 defaults.
     """
-    messages = [
-        {"role": "user", "content": f"<speech>{SPEECH_PLACEHOLDER}</speech>\n{instruction}"},
-    ]
+    content = (
+        f"Content: <speech>{SPEECH_PLACEHOLDER}</speech>\n"
+        f"Question: {instruction}\n"
+        f"Your answer:"
+    )
+    messages = [{"role": "user", "content": content}]
     if response is not None:
         messages.append({"role": "assistant", "content": response})
     return messages

@@ -1,19 +1,35 @@
-# Stage 1: Projector alignment on ASR (no LoRA, LLM frozen)
-# Following NAVER IWSLT 2025: constant LR, effective batch 256
-# H200 141GB: batch 64 × accum 4 = 256 (maximizes GPU utilization)
+# Stage 1: Projector alignment on ASR + ST (NAVER Stage A)
+# No LoRA, LLM frozen — only projector trains.
+# Following NAVER IWSLT 2025 (arxiv 2506.01808): constant LR 1e-4,
+# effective batch 256, ASR 0.4 / ST 0.6
+# H200 141GB: batch 64 × accum 4 = 256
 defaults:
   - base
 
-task: asr
-language: en
+task: multitask
 stage: 1
 
+tasks:
+  asr:
+    train:
+      - europarlst
+  s2tt:
+    train:
+      - europarlst
+    target_languages:
+      - de
+      - it
+
 data:
-  train:
-    - europarlst
-    # - gigast  # uncomment after downloading GigaST translations
   eval:
     - mcif
+
+sampling:
+  # NAVER Stage A ratios: ASR 0.4, ST 0.6 (split equally across languages)
+  ratios:
+    asr: 0.4
+    s2tt_de: 0.3
+    s2tt_it: 0.3
 
 training:
   no_lora: true
@@ -26,5 +42,5 @@ training:
   lr_scheduler_type: constant
   warmup_ratio: 0.0
   logging_steps: 10
-  logging_dir: ./logs/stage1
   save_steps: 500
+  logging_dir: ./logs/stage1

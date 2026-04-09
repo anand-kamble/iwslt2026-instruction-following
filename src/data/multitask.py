@@ -55,6 +55,10 @@ class TemperatureSampler(Sampler[int]):
 
     Each epoch samples `total_samples` indices. Smaller datasets are
     oversampled and larger datasets are undersampled based on temperature.
+
+    Supports paired text interleaving (NAVER IWSLT 2025 Stage C):
+    when a speech task with a text_pair is sampled, a batch from the
+    paired text task immediately follows, ensuring speech→text pairing.
     """
 
     def __init__(
@@ -62,15 +66,22 @@ class TemperatureSampler(Sampler[int]):
         dataset: MultiTaskDataset,
         temperature: float = 0.5,
         ratios: dict[str, float] | None = None,
+        text_pairs: dict[str, str] | None = None,
         total_samples: int | None = None,
         seed: int = 42,
+        batch_size: int = 1,
     ):
         self.dataset = dataset
         self.temperature = temperature
         self.seed = seed
+        self.batch_size = batch_size
+        self.text_pairs = text_pairs or {}
 
         sizes = dataset.task_sizes
-        total_original = sum(sizes.values())
+        # Epoch size based on speech tasks only (NAVER: text tasks piggyback)
+        text_pair_targets = set(self.text_pairs.values())
+        speech_total = sum(s for n, s in sizes.items() if n not in text_pair_targets)
+        total_fallback = speech_total if text_pair_targets else sum(sizes.values())
 
         if ratios is not None:
             # Use explicit ratios — normalize to sum to 1.0
@@ -78,19 +89,23 @@ class TemperatureSampler(Sampler[int]):
             ratio_sum = sum(present.values())
             self.task_probs = {name: p / ratio_sum for name, p in present.items()}
             # Tasks in dataset but not in ratios get zero weight
+            # (text-pair targets are sampled via pairing, not independently)
             for name in sizes:
                 if name not in self.task_probs:
                     self.task_probs[name] = 0.0
         else:
             # Temperature-scaled probabilities: p_i ∝ n_i^T
-            raw_probs = {
-                name: math.pow(size, temperature) for name, size in sizes.items()
-            }
+            # Exclude text-pair targets from independent sampling
+            active_sizes = {n: s for n, s in sizes.items() if n not in text_pair_targets}
+            raw_probs = {name: math.pow(size, temperature) for name, size in active_sizes.items()}
             prob_sum = sum(raw_probs.values())
             self.task_probs = {name: p / prob_sum for name, p in raw_probs.items()}
+            for name in sizes:
+                if name not in self.task_probs:
+                    self.task_probs[name] = 0.0
 
-        # Total samples per epoch (default: sum of all datasets)
-        self.total_samples = total_samples or total_original
+        # Total samples per epoch (default: speech tasks only)
+        self.total_samples = total_samples or total_fallback
 
         # Build per-task index ranges for fast lookup
         self._task_indices: dict[str, list[int]] = {}
@@ -101,16 +116,32 @@ class TemperatureSampler(Sampler[int]):
         rng = random.Random(self.seed)
         self.seed += 1  # different order each epoch
 
-        task_names = list(self.task_probs.keys())
-        task_weights = [self.task_probs[name] for name in task_names]
+        # Only independently sample tasks with positive weight
+        task_names = [n for n in self.task_probs if self.task_probs[n] > 0]
+        task_weights = [self.task_probs[n] for n in task_names]
 
         indices = []
-        for _ in range(self.total_samples):
-            # Pick a task based on temperature-scaled probabilities
-            task = rng.choices(task_names, weights=task_weights, k=1)[0]
-            # Pick a random sample from that task
-            idx = rng.choice(self._task_indices[task])
-            indices.append(idx)
+        if self.batch_size > 1:
+            # Yield in batch-sized groups from the same task.
+            # This ensures homogeneous batches (all speech or all text-only),
+            # required for interleaved text training (NAVER IWSLT 2025 Stage C).
+            while len(indices) < self.total_samples:
+                task = rng.choices(task_names, weights=task_weights, k=1)[0]
+                for _ in range(self.batch_size):
+                    idx = rng.choice(self._task_indices[task])
+                    indices.append(idx)
+                # Paired text interleaving (NAVER Stage C): speech batch is
+                # immediately followed by a batch from the text equivalent.
+                text_pair = self.text_pairs.get(task)
+                if text_pair and text_pair in self._task_indices:
+                    for _ in range(self.batch_size):
+                        idx = rng.choice(self._task_indices[text_pair])
+                        indices.append(idx)
+        else:
+            for _ in range(self.total_samples):
+                task = rng.choices(task_names, weights=task_weights, k=1)[0]
+                idx = rng.choice(self._task_indices[task])
+                indices.append(idx)
 
         return iter(indices)
 
@@ -137,6 +168,7 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
     # ASR
     if "asr" in tasks_config:
         from src.data.asr import load_asr_dataset
+
         asr_datasets = []
         for ds_name in tasks_config["asr"].get("train", []):
             try:
@@ -149,6 +181,7 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
     # S2TT
     if "s2tt" in tasks_config:
         from src.data.s2tt import load_s2tt_dataset
+
         s2tt_config = tasks_config["s2tt"]
         for lang in s2tt_config.get("target_languages", ["de", "it", "zh"]):
             s2tt_datasets = []
@@ -166,6 +199,7 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
     # SQA
     if "sqa" in tasks_config:
         from src.data.sqa import load_sqa_dataset
+
         sqa_config = tasks_config["sqa"]
         for lang in sqa_config.get("languages", ["en"]):
             try:
@@ -179,6 +213,7 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
     # S2TSUM (lazy audio — no max_samples needed for memory)
     if "s2tsum" in tasks_config:
         from src.data.s2tsum import load_s2tsum_dataset
+
         s2tsum_config = tasks_config["s2tsum"]
         s2tsum_max = s2tsum_config.get("max_samples", max_samples)
         for lang in s2tsum_config.get("languages", ["en"]):
@@ -191,16 +226,44 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
     # ACHAP (lazy audio — no max_samples needed for memory)
     if "achap" in tasks_config:
         from src.data.achap import load_achap_dataset
+
         achap_config = tasks_config["achap"]
         achap_max = achap_config.get("max_samples", max_samples)
         for lang in achap_config.get("languages", ["en"]):
             try:
-                ds = load_achap_dataset("train", lang,
-                                        use_audio=achap_config.get("use_audio", True),
-                                        max_samples=achap_max)
+                ds = load_achap_dataset(
+                    "train",
+                    lang,
+                    use_audio=achap_config.get("use_audio", True),
+                    max_samples=achap_max,
+                )
                 all_datasets[f"achap_{lang}"] = ds
             except (ValueError, FileNotFoundError) as e:
                 print(f"Skipping ACHAP/{lang}: {e}")
+
+    # Load text-only datasets for interleaving (NAVER IWSLT 2025 Stage C).
+    # Each speech task with a textual equivalent (ST↔MT, SQA↔QA) gets a
+    # matching text-only dataset. The sampler yields homogeneous batches so
+    # the collator can auto-detect text-only vs speech batches.
+    text_interleave = config.get("text_interleave", {})
+    if text_interleave:
+        from src.data.text_only import load_mt_europarlst, load_sqa_text_only
+
+        for speech_task, loader_spec in text_interleave.items():
+            try:
+                loader_type, lang = loader_spec.split("_", 1)
+                if loader_type == "mt":
+                    ds = load_mt_europarlst(lang)
+                elif loader_type == "qa":
+                    ds = load_sqa_text_only("train", lang)
+                else:
+                    print(f"Unknown text interleave loader: {loader_spec}")
+                    continue
+                if max_samples and len(ds) > max_samples:
+                    ds = ds.select(range(max_samples))
+                all_datasets[loader_spec] = ds
+            except (ValueError, FileNotFoundError) as e:
+                print(f"Skipping text interleave {speech_task}→{loader_spec}: {e}")
 
     if not all_datasets:
         raise RuntimeError("No datasets were loaded. Check your config and data paths.")

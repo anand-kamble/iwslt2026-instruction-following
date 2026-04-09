@@ -43,7 +43,14 @@ class SpeechTextCollator:
         if any(tasks):
             batch["_tasks"] = tasks
 
-        if not self.text_only:
+        # Auto-detect text-only batches: skip audio processing if no samples have audio.
+        # This supports interleaved text batches in Stage 3 (NAVER IWSLT 2025).
+        has_audio = not self.text_only and any(
+            "audio" in f or "audio_path" in f or "audio_array" in f
+            or "precomputed_features" in f
+            for f in features
+        )
+        if has_audio:
             if "precomputed_features" in features[0]:
                 # Precomputed mode: pad pre-extracted features
                 feats = [f["precomputed_features"] for f in features]
