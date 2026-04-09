@@ -149,6 +149,24 @@ class TemperatureSampler(Sampler[int]):
         return self.total_samples
 
 
+def _align_audio_features(datasets: list) -> list:
+    """Cast audio columns to 16kHz so datasets from different sources can be concatenated.
+
+    CoVoST2 declares Audio(sampling_rate=16000) while EuroParlST uses
+    Audio(sampling_rate=None). concatenate_datasets rejects the schema
+    mismatch. Casting to a uniform 16kHz resolves this.
+    """
+    from datasets import Audio as AudioFeature
+
+    aligned = []
+    for ds in datasets:
+        if "audio" in ds.features and hasattr(ds.features["audio"], "sampling_rate"):
+            if ds.features["audio"].sampling_rate != 16000:
+                ds = ds.cast_column("audio", AudioFeature(sampling_rate=16000))
+        aligned.append(ds)
+    return aligned
+
+
 def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
     """Load datasets for all tasks specified in a multitask config.
 
@@ -176,7 +194,7 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
             except (ValueError, FileNotFoundError) as e:
                 print(f"Skipping ASR/{ds_name}: {e}")
         if asr_datasets:
-            all_datasets["asr"] = concatenate_datasets(asr_datasets)
+            all_datasets["asr"] = concatenate_datasets(_align_audio_features(asr_datasets))
 
     # S2TT
     if "s2tt" in tasks_config:
@@ -194,7 +212,9 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
                 except (ValueError, FileNotFoundError) as e:
                     print(f"Skipping S2TT/{ds_name}/{lang}: {e}")
             if s2tt_datasets:
-                all_datasets[f"s2tt_{lang}"] = concatenate_datasets(s2tt_datasets)
+                all_datasets[f"s2tt_{lang}"] = concatenate_datasets(
+                    _align_audio_features(s2tt_datasets)
+                )
 
     # SQA
     if "sqa" in tasks_config:

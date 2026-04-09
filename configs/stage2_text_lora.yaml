@@ -13,19 +13,18 @@ data:
     - mt_europarlst
     - mt_covost2
     - sqa_english
-    - sqa_translated
+    # - sqa_translated  # uncomment after: python -m src.data.translate_sqa --languages de it zh
 
 # Paper §5.1 Stage B: MT 0.6, QA 0.4
-# MT split evenly across 3 languages. QA split across 4 languages.
 sampling:
   ratios:
     mt_de: 0.20
     mt_it: 0.20
     mt_zh: 0.20
-    qa_en: 0.10
-    qa_de: 0.10
-    qa_it: 0.10
-    qa_zh: 0.10
+    qa_en: 0.40
+    # qa_de: 0.10  # uncomment with sqa_translated (reduce qa_en to 0.10)
+    # qa_it: 0.10
+    # qa_zh: 0.10
 
 training:
   text_only: true
