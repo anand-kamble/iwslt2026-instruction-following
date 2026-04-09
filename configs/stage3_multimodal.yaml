@@ -27,9 +27,9 @@ tasks:
       - librisqa
     languages:
       - en
-      # - de   # uncomment with sqa_translated
-      # - it
-      # - zh
+      - de
+      - it
+      - zh
   s2tsum:
     languages:
       - en
@@ -49,9 +49,9 @@ text_interleave:
   s2tt_it: mt_it
   s2tt_zh: mt_zh
   sqa_en: qa_en
-  # sqa_de: qa_de  # uncomment with sqa_translated
-  # sqa_it: qa_it
-  # sqa_zh: qa_zh
+  sqa_de: qa_de
+  sqa_it: qa_it
+  sqa_zh: qa_zh
 
 sampling:
   # Paper Stage C base: ASR 0.2, ST 0.4, SQA 0.4 — adapted for S2TSUM + ACHAP.
@@ -60,10 +60,10 @@ sampling:
     s2tt_de: 0.10
     s2tt_it: 0.10
     s2tt_zh: 0.10
-    sqa_en: 0.25
-    # sqa_de: 0.05  # uncomment with sqa_translated (reduce sqa_en to 0.10)
-    # sqa_it: 0.05
-    # sqa_zh: 0.05
+    sqa_en: 0.10
+    sqa_de: 0.05
+    sqa_it: 0.05
+    sqa_zh: 0.05
     s2tsum_en: 0.10
     achap_en: 0.15
 

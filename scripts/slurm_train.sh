@@ -122,6 +122,26 @@ if [ "$START_STAGE" -le 1 ] && [ "$END_STAGE" -ge 1 ]; then
     echo "Stage 1 complete: $STAGE1_DIR"
 fi
 
+# ── Generate translated SQA (if missing) ─────────────────────────────────────
+if [ "$START_STAGE" -le 2 ] && [ "$END_STAGE" -ge 2 ]; then
+    SQA_DIR="data/sqa_translated"
+    if [ ! -f "$SQA_DIR/librisqa_de.jsonl" ] || \
+       [ ! -f "$SQA_DIR/librisqa_it.jsonl" ] || \
+       [ ! -f "$SQA_DIR/librisqa_zh.jsonl" ]; then
+        _CURRENT_STAGE="translate_sqa"
+        echo ""
+        echo "============================================================"
+        echo "PRE-STAGE 2: Generating translated SQA (de, it, zh)"
+        echo "============================================================"
+        python -m src.data.translate_sqa \
+            --output_dir "$SQA_DIR" \
+            --languages de it zh
+        echo "Translated SQA complete: $SQA_DIR"
+    else
+        echo "Translated SQA already exists at $SQA_DIR, skipping"
+    fi
+fi
+
 # ── Stage 2: Text-only LoRA pre-training ─────────────────────────────────────
 if [ "$START_STAGE" -le 2 ] && [ "$END_STAGE" -ge 2 ]; then
     _CURRENT_STAGE="stage2"
