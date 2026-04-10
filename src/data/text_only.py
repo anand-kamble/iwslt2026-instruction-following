@@ -5,10 +5,10 @@ Used to train LoRA adapters on text reasoning before multimodal merge.
 """
 
 import json
-from pathlib import Path
 
 from datasets import load_dataset
 
+from src.data.sqa import load_librisqa_source_dataset
 from src.data.utils import TASK_PROMPTS, UNANSWERABLE, format_text_only_messages, get_data_dir
 
 
@@ -98,18 +98,9 @@ def load_sqa_text_only(split: str = "train", language: str = "en"):
     For other languages: loads from translated JSONL files.
     """
     if language != "en":
-        return _load_translated_sqa_text_only(language)
+        return _load_translated_sqa_text_only(split, language)
 
-    split_map = {"train": "partI.train", "test": "partI.test"}
-    hf_split = split_map.get(split, split)
-    ds = load_dataset(
-        "ZihanZhao/LibriSQA",
-        data_files={
-            "partI.train": "LibriSQA-PartI/LibriSQA-PartI-train.json",
-            "partI.test": "LibriSQA-PartI/LibriSQA-PartI-test.json",
-        },
-        split=hf_split,
-    )
+    ds = load_librisqa_source_dataset(split)
 
     def _format(example):
         question = example.get("question", "")
@@ -127,8 +118,14 @@ def load_sqa_text_only(split: str = "train", language: str = "en"):
     return ds.map(_format)
 
 
-def _load_translated_sqa_text_only(language: str):
+def _load_translated_sqa_text_only(split: str, language: str):
     """Load translated SQA from local JSONL files (text-only, no audio)."""
+    if split not in ("train", "partI.train"):
+        raise ValueError(
+            "Translated SQA currently supports only the train split. "
+            "Generate split-specific JSONL files before requesting other splits."
+        )
+
     jsonl_path = get_data_dir() / "sqa_translated" / f"librisqa_{language}.jsonl"
     if not jsonl_path.exists():
         raise FileNotFoundError(

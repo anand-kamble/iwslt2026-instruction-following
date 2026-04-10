@@ -188,8 +188,11 @@ def main():
         if skipped:
             print(f"  WARNING: {skipped} samples had null audio and were skipped")
         if extracted < expected:
-            print(f"  WARNING: {expected - extracted} samples missing — "
-                  "training will fail on these indices")
+            missing = expected - extracted
+            raise RuntimeError(
+                f"{task_name}: {missing} samples are still missing from {task_dir}. "
+                "Refusing to continue with an incomplete precompute cache."
+            )
 
     print(f"\nDone. Use: --precomputed_dir {args.output_dir}")
 

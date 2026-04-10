@@ -46,10 +46,13 @@ HF_REPO="anand-kamble/iwslt2026-stage3"
 START_STAGE="${START_STAGE:-1}"
 END_STAGE="${END_STAGE:-99}"
 SKIP_UPLOAD="${SKIP_UPLOAD:-0}"
+REQUIRE_UPLOAD="${REQUIRE_UPLOAD:-0}"
+STAGE3_CONFIG="${STAGE3_CONFIG:-configs/stage3_multimodal.yaml}"
+STAGE3_CONFIG_NAME="$(basename "${STAGE3_CONFIG%.yaml}")"
 
 STAGE1_DIR="outputs/stage1_alignment"
 STAGE2_DIR="outputs/stage2_text_lora"
-STAGE3_DIR="outputs/stage3_multimodal"
+STAGE3_DIR="outputs/${STAGE3_CONFIG_NAME}"
 PRECOMPUTED_DIR="data/precomputed"
 
 # ── Wandb ────────────────────────────────────────────────────────────────────
@@ -72,8 +75,7 @@ mkdir -p logs
 # flash-attn must be pre-installed (compiles for 10-30 min, unsafe during jobs):
 #   pip install wheel && pip install flash-attn --no-build-isolation
 if ! python -c "import flash_attn" 2>/dev/null; then
-    echo "ERROR: flash-attn not installed. Run the pip command above in an interactive session first."
-    exit 1
+    echo "WARNING: flash-attn not installed. Falling back to Transformers default attention kernels."
 fi
 
 # ── Failure trap ─────────────────────────────────────────────────────────────
@@ -165,7 +167,15 @@ if [ "$START_STAGE" -le 3 ] && [ "$END_STAGE" -ge 3 ]; then
     echo "============================================================"
 
     # Extract once, skip if already done (extract_features.py has resume support)
-    STAGE3_CONFIG="${STAGE3_CONFIG:-configs/stage3_multimodal.yaml}"
+    if [[ "$STAGE3_CONFIG" == configs/swift/* ]]; then
+        echo "ERROR: Native slurm pipeline cannot use SWIFT configs: $STAGE3_CONFIG"
+        echo "Use native config (e.g., configs/stage3_multimodal.yaml or configs/stage3_v2.yaml)."
+        exit 1
+    fi
+    if [ ! -f "$STAGE3_CONFIG" ]; then
+        echo "ERROR: STAGE3_CONFIG not found: $STAGE3_CONFIG"
+        exit 1
+    fi
     python src/extract_features.py \
         --config "$STAGE3_CONFIG" \
         --output_dir "$PRECOMPUTED_DIR" \
@@ -210,8 +220,18 @@ if [ "$SKIP_UPLOAD" -eq 0 ] && [ "$START_STAGE" -le 3 ] && [ "$END_STAGE" -ge 3 
 
     if [ -d "$STAGE3_DIR" ]; then
         echo "Uploading $STAGE3_DIR → hf.co/$HF_REPO"
-        huggingface-cli upload "$HF_REPO" "$STAGE3_DIR" --repo-type model
-        echo "Upload complete: https://huggingface.co/$HF_REPO"
+        if ! command -v huggingface-cli >/dev/null 2>&1; then
+            echo "WARNING: huggingface-cli not available; skipping upload"
+            [ "$REQUIRE_UPLOAD" -eq 1 ] && exit 1
+        elif ! huggingface-cli whoami >/dev/null 2>&1; then
+            echo "WARNING: HuggingFace CLI is not authenticated; skipping upload"
+            [ "$REQUIRE_UPLOAD" -eq 1 ] && exit 1
+        elif huggingface-cli upload "$HF_REPO" "$STAGE3_DIR" --repo-type model; then
+            echo "Upload complete: https://huggingface.co/$HF_REPO"
+        else
+            echo "WARNING: HuggingFace upload failed; training artifacts are still available locally at $STAGE3_DIR"
+            [ "$REQUIRE_UPLOAD" -eq 1 ] && exit 1
+        fi
     else
         echo "ERROR: Stage 3 output not found at $STAGE3_DIR"
         exit 1

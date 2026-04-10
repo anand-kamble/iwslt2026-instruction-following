@@ -20,6 +20,20 @@ SPEECH_DIM = 1024
 QWEN3_4B_DIM = 2560
 
 
+def _configure_attention_impl(model_kwargs: dict, device: str):
+    """Enable FlashAttention 2 on CUDA when the package is available."""
+    if device != "cuda":
+        return
+
+    try:
+        import flash_attn  # noqa: F401
+    except ImportError:
+        print("WARNING: flash-attn not installed; falling back to default attention kernels")
+        return
+
+    model_kwargs["attn_implementation"] = "flash_attention_2"
+
+
 def get_device():
     """Auto-detect the best available device."""
     if torch.cuda.is_available():
@@ -88,9 +102,7 @@ def load_llm_with_lora(
         "trust_remote_code": True,
     }
 
-    # Enable Flash Attention 2 on CUDA for faster attention
-    if device == "cuda":
-        model_kwargs["attn_implementation"] = "flash_attention_2"
+    _configure_attention_impl(model_kwargs, device)
 
     if use_quantization:
         from transformers import BitsAndBytesConfig
@@ -173,9 +185,7 @@ def load_llm_from_checkpoint(
     use_quantization = (load_in_4bit or load_in_8bit) and device == "cuda"
     model_kwargs = {"trust_remote_code": True}
 
-    # Enable Flash Attention 2 on CUDA
-    if device == "cuda":
-        model_kwargs["attn_implementation"] = "flash_attention_2"
+    _configure_attention_impl(model_kwargs, device)
 
     if use_quantization:
         from transformers import BitsAndBytesConfig

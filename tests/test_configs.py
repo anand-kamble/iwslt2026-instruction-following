@@ -179,7 +179,7 @@ def test_base_config_defaults():
     assert config["training"]["load_in_4bit"] is False
     assert config["training"]["lora_r"] == 8
     assert config["training"]["lora_alpha"] == 16
-    assert config["training"]["optim"] == "adamw_torch"
+    assert config["training"]["optim"] == "adamw_torch_fused"
 
 
 def test_stage1_no_lora():

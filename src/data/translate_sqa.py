@@ -13,10 +13,10 @@ import os
 from pathlib import Path
 
 import torch
-from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoProcessor, SeamlessM4Tv2ForTextToText
 
+from src.data.sqa import load_librisqa_source_dataset
 
 LANG_CODES = {
     "de": "deu",
@@ -61,6 +61,35 @@ def filter_with_cometkiwi(sources, translations, threshold=0.85):
     return passed, scores
 
 
+def filter_or_skip(questions, answers, translated_questions, translated_answers, args):
+    """Run COMETKiwi filtering, or fall back to keeping all pairs."""
+    if args.skip_filtering:
+        return list(range(len(questions)))
+
+    try:
+        print("Running COMETKiwi quality filtering on questions...")
+        passed_q, _ = filter_with_cometkiwi(
+            questions, translated_questions, threshold=args.comet_threshold
+        )
+        print("Running COMETKiwi quality filtering on answers...")
+        passed_a, _ = filter_with_cometkiwi(
+            answers,
+            translated_answers,
+            threshold=args.comet_threshold,
+        )
+        passed_both = sorted(set(passed_q) & set(passed_a))
+        print(f"Pairs passing both filters: {len(passed_both)}/{len(questions)}")
+        return passed_both
+    except Exception as exc:
+        if args.require_filtering:
+            raise
+        print(
+            f"WARNING: COMETKiwi filtering failed ({type(exc).__name__}: {exc}). "
+            "Continuing without filtering."
+        )
+        return list(range(len(questions)))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Translate LibriSQA for multilingual SQA")
     parser.add_argument("--output_dir", type=str, default="data/sqa_translated")
@@ -68,6 +97,11 @@ def main():
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--comet_threshold", type=float, default=0.85)
     parser.add_argument("--skip_filtering", action="store_true", help="Skip COMETKiwi filtering")
+    parser.add_argument(
+        "--require_filtering",
+        action="store_true",
+        help="Fail instead of falling back to unfiltered pairs if COMETKiwi is unavailable",
+    )
     parser.add_argument("--device", type=str, default="cuda")
     args = parser.parse_args()
 
@@ -80,14 +114,10 @@ def main():
     model.eval()
 
     print("Loading LibriSQA...")
-    ds = load_dataset(
-        "ZihanZhao/LibriSQA",
-        data_files={"partI.train": "LibriSQA-PartI/LibriSQA-PartI-train.json"},
-        split="partI.train",
-    )
+    ds = load_librisqa_source_dataset("train")
 
-    questions = [ex.get("question", "") for ex in ds]
-    answers = [ex.get("answer", "") for ex in ds]
+    questions = [(ex.get("question") or "") for ex in ds]
+    answers = [(ex.get("answer") or "") for ex in ds]
 
     for lang in args.languages:
         print(f"\n=== Translating to {lang} ===")
@@ -103,21 +133,9 @@ def main():
             model, processor, answers, tgt_lang=tgt_code, batch_size=args.batch_size
         )
 
-        # COMETKiwi quality filtering
-        if not args.skip_filtering:
-            print("Running COMETKiwi quality filtering on questions...")
-            passed_q, scores_q = filter_with_cometkiwi(
-                questions, translated_questions, threshold=args.comet_threshold
-            )
-            print("Running COMETKiwi quality filtering on answers...")
-            passed_a, scores_a = filter_with_cometkiwi(
-                answers, translated_answers, threshold=args.comet_threshold
-            )
-            # Keep only indices that passed BOTH question and answer filtering
-            passed_both = sorted(set(passed_q) & set(passed_a))
-            print(f"Pairs passing both filters: {len(passed_both)}/{len(questions)}")
-        else:
-            passed_both = list(range(len(questions)))
+        passed_both = filter_or_skip(
+            questions, answers, translated_questions, translated_answers, args
+        )
 
         # Save as JSONL (only filtered pairs)
         output_path = Path(args.output_dir) / f"librisqa_{lang}.jsonl"

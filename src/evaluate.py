@@ -76,7 +76,9 @@ def check_mwer_segmenter():
     return True
 
 
-def run_inference_on_mcif(model, processor, tokenizer, task: str, language: str, track: str = "short", data_dir: str = "."):
+def run_inference_on_mcif(
+    model, processor, tokenizer, task: str, language: str, track: str = "short", data_dir: str = "."
+):
     """Run inference on MCIF validation set and write output XML."""
     from datasets import load_dataset
     from mcif.io import OutputSample, write_output
@@ -124,11 +126,10 @@ def run_inference_on_mcif(model, processor, tokenizer, task: str, language: str,
         )
 
         output_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        is_asr = _is_asr_prompt(instruction)
-        per_segment_results.append((example["id"], output_text, is_asr))
+        per_segment_results.append((example["id"], output_text))
 
     # Output individual samples — mcif_eval handles ASR grouping internally
-    samples = [OutputSample(id=sid, value=text) for sid, text, _ in per_segment_results]
+    samples = [OutputSample(id=sid, value=text) for sid, text in per_segment_results]
 
     # Write output XML
     output_path = f"outputs/eval_{task}_{language}_{track}.xml"
@@ -169,7 +170,9 @@ def main():
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--languages", nargs="+", default=["en", "de", "it", "zh"])
     parser.add_argument("--track", type=str, default="short", choices=["short", "long"])
-    parser.add_argument("--data-dir", type=str, default=".", help="Base directory for MCIF audio files")
+    parser.add_argument(
+        "--data-dir", type=str, default=".", help="Base directory for MCIF audio files"
+    )
     args = parser.parse_args()
 
     with open(args.config) as f:

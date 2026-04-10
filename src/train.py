@@ -379,10 +379,20 @@ def main():
             wrapped = 0
             for task_name in task_datasets:
                 task_dir = os.path.join(args.precomputed_dir, task_name)
-                has_features = os.path.isdir(task_dir) and any(
-                    f.endswith(".pt") for f in os.listdir(task_dir)
-                )
+                feature_files = []
+                if os.path.isdir(task_dir):
+                    feature_files = [
+                        f for f in os.listdir(task_dir) if f.endswith(".pt") and f[:-3].isdigit()
+                    ]
+                has_features = bool(feature_files)
                 if has_features:
+                    expected = len(task_datasets[task_name])
+                    found = len(feature_files)
+                    if found != expected:
+                        raise RuntimeError(
+                            f"Incomplete precomputed features for {task_name}: "
+                            f"found {found}, expected {expected} in {task_dir}"
+                        )
                     task_datasets[task_name] = PrecomputedWrapper(
                         task_datasets[task_name], task_dir
                     )
