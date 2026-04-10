@@ -66,37 +66,64 @@ class SpeechTextCollator:
             else:
                 # Raw audio mode — supports both dict format and pre-extracted arrays
                 # Resample to 16kHz if needed (SeamlessM4T expects 16kHz)
+                import sys
                 import torchaudio
                 audios = []
+                kept_features = []
                 for f in features:
-                    if "audio_path" in f and f["audio_path"]:
-                        # Load audio from file path (e.g., SQA → LibriSpeech)
-                        waveform, sr = torchaudio.load(f["audio_path"])
-                        if waveform.shape[0] > 1:
-                            waveform = waveform.mean(dim=0, keepdim=True)
-                        audio = waveform.squeeze(0).numpy()
-                    elif "audio_array" in f:
-                        audio = f["audio_array"]
-                        sr = f.get("sampling_rate", 16000)
-                    elif isinstance(f.get("audio"), dict):
-                        audio = f["audio"]["array"]
-                        sr = f["audio"].get("sampling_rate", 16000)
-                    else:
-                        audio = f["audio"]
-                        sr = 16000
+                    try:
+                        if "audio_path" in f and f["audio_path"]:
+                            # Load audio from file path (e.g., SQA → LibriSpeech)
+                            waveform, sr = torchaudio.load(f["audio_path"])
+                            if waveform.shape[0] > 1:
+                                waveform = waveform.mean(dim=0, keepdim=True)
+                            audio = waveform.squeeze(0).numpy()
+                        elif "audio_array" in f:
+                            audio = f["audio_array"]
+                            sr = f.get("sampling_rate", 16000)
+                        elif isinstance(f.get("audio"), dict):
+                            audio = f["audio"]["array"]
+                            sr = f["audio"].get("sampling_rate", 16000)
+                        else:
+                            audio = f["audio"]
+                            sr = 16000
 
-                    if sr != 16000:
-                        if sr not in self._resamplers:
-                            self._resamplers[sr] = torchaudio.transforms.Resample(sr, 16000)
-                        waveform = torch.as_tensor(audio, dtype=torch.float32).unsqueeze(0)
-                        audio = self._resamplers[sr](waveform).squeeze(0).numpy()
+                        if sr != 16000:
+                            if sr not in self._resamplers:
+                                self._resamplers[sr] = torchaudio.transforms.Resample(sr, 16000)
+                            waveform = torch.as_tensor(audio, dtype=torch.float32).unsqueeze(0)
+                            audio = self._resamplers[sr](waveform).squeeze(0).numpy()
 
-                    # Truncate long audio to avoid OOM in speech encoder
-                    max_samples = self.max_audio_seconds * 16000
-                    if len(audio) > max_samples:
-                        audio = audio[:max_samples]
+                        # Truncate long audio to avoid OOM in speech encoder
+                        max_samples = self.max_audio_seconds * 16000
+                        if len(audio) > max_samples:
+                            audio = audio[:max_samples]
 
-                    audios.append(audio)
+                        audios.append(audio)
+                        kept_features.append(f)
+                    except Exception as e:
+                        try:
+                            err = repr(e)
+                        except Exception:
+                            err = f"{type(e).__name__}(<repr failed>)"
+                        path = f.get("audio_path", "<embedded>")
+                        print(
+                            f"[collator] dropping sample: task={f.get('_task')!r} "
+                            f"path={path!r} err={err}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+
+                if not audios:
+                    raise RuntimeError(
+                        "collator: all audio samples in batch failed to load"
+                    )
+
+                if len(kept_features) != len(features):
+                    features = kept_features
+                    tasks = [f.get("_task") for f in features]
+                    if any(tasks):
+                        batch["_tasks"] = tasks
 
                 audio_inputs = self.processor(
                     audios=audios,

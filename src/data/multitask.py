@@ -40,9 +40,45 @@ class MultiTaskDataset(Dataset):
 
     def __getitem__(self, idx):
         task_name, local_idx = self._index_map[idx]
-        item = self.task_datasets[task_name][local_idx]
+        try:
+            item = self.task_datasets[task_name][local_idx]
+        except Exception as e:
+            import sys
+            try:
+                err = repr(e)
+            except Exception:
+                err = f"{type(e).__name__}(<repr failed>)"
+            print(
+                f"[MultiTaskDataset] failed to load {task_name}[{local_idx}]: {err}",
+                file=sys.stderr,
+                flush=True,
+            )
+            item = self._load_fallback(task_name, bad_idx=local_idx)
         item["_task"] = task_name
         return item
+
+    def _load_fallback(self, task_name: str, bad_idx: int, max_retries: int = 8):
+        import sys
+        ds = self.task_datasets[task_name]
+        for _ in range(max_retries):
+            retry_idx = random.randrange(len(ds))
+            if retry_idx == bad_idx:
+                continue
+            try:
+                return ds[retry_idx]
+            except Exception as e:
+                try:
+                    err = repr(e)
+                except Exception:
+                    err = f"{type(e).__name__}(<repr failed>)"
+                print(
+                    f"[MultiTaskDataset] fallback {task_name}[{retry_idx}] also failed: {err}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+        raise RuntimeError(
+            f"MultiTaskDataset: no loadable sample in {task_name!r} after {max_retries} retries"
+        )
 
 
 class TemperatureSampler(Sampler[int]):
