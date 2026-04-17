@@ -35,7 +35,6 @@
 # Outputs:
 #   outputs/stage1_alignment/  — Stage 1 projector (NAVER Stage A)
 #   outputs/stage2_text_lora/  — Stage 2 LoRA adapters (NAVER Stage B)
-#   data/precomputed/          — Pre-extracted speech features (Stage 3a)
 #   outputs/stage3_multimodal/ — Stage 3 final checkpoint (NAVER Stage C, uploaded to HF)
 # =============================================================================
 
@@ -57,7 +56,6 @@ STAGE3_CONFIG_NAME="$(basename "${STAGE3_CONFIG%.yaml}")"
 STAGE1_DIR="outputs/stage1_alignment"
 STAGE2_DIR="outputs/stage2_text_lora"
 STAGE3_DIR="outputs/${STAGE3_CONFIG_NAME}"
-PRECOMPUTED_DIR="data/precomputed"
 
 # ── Wandb ────────────────────────────────────────────────────────────────────
 export WANDB_PROJECT="${WANDB_PROJECT:-iwslt2026}"
@@ -167,15 +165,14 @@ if [ "$START_STAGE" -le 2 ] && [ "$END_STAGE" -ge 2 ]; then
     echo "Stage 2 complete: $STAGE2_DIR"
 fi
 
-# ── Stage 3: Pre-extract features + Multimodal merge ─────────────────────────
+# ── Stage 3: Multimodal merge (on-the-fly speech features) ───────────────────
 if [ "$START_STAGE" -le 3 ] && [ "$END_STAGE" -ge 3 ]; then
-    _CURRENT_STAGE="stage3_extract"
+    _CURRENT_STAGE="stage3"
     echo ""
     echo "============================================================"
-    echo "STAGE 3a: Pre-extract speech encoder features"
+    echo "STAGE 3: Multimodal merge (on-the-fly speech features)"
     echo "============================================================"
 
-    # Extract once, skip if already done (extract_features.py has resume support)
     if [[ "$STAGE3_CONFIG" == configs/swift/* ]]; then
         echo "ERROR: Native slurm pipeline cannot use SWIFT configs: $STAGE3_CONFIG"
         echo "Use native config (e.g., configs/stage3_multimodal.yaml or configs/stage3_v2.yaml)."
@@ -185,20 +182,9 @@ if [ "$START_STAGE" -le 3 ] && [ "$END_STAGE" -ge 3 ]; then
         echo "ERROR: STAGE3_CONFIG not found: $STAGE3_CONFIG"
         exit 1
     fi
-    python src/extract_features.py \
-        --config "$STAGE3_CONFIG" \
-        --output_dir "$PRECOMPUTED_DIR" \
-        --batch_size 32
-
-    _CURRENT_STAGE="stage3"
-    echo ""
-    echo "============================================================"
-    echo "STAGE 3b: Multimodal merge (projector + LoRA)"
-    echo "============================================================"
 
     STAGE3_ARGS=(
         --config "$STAGE3_CONFIG"
-        --precomputed_dir "$PRECOMPUTED_DIR"
     )
 
     if [ -d "$STAGE1_DIR" ]; then

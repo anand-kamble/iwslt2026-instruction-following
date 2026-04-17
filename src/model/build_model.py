@@ -9,10 +9,12 @@ Supports both CUDA and MPS (Apple Silicon):
 - MPS/CPU: float16/float32, no quantization
 """
 
+import os
+
 import torch
 import torch.nn as nn
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor, SeamlessM4Tv2Model
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer, SeamlessM4Tv2Model
 
 from src.model.adapters import SpeechProjector, TransformerProjector
 
@@ -43,6 +45,30 @@ def get_device():
     return "cpu"
 
 
+def _get_local_rank() -> int:
+    try:
+        return int(os.environ.get("LOCAL_RANK", "-1"))
+    except ValueError:
+        return -1
+
+
+def _is_distributed_run() -> bool:
+    try:
+        return int(os.environ.get("WORLD_SIZE", "1")) > 1
+    except ValueError:
+        return False
+
+
+def _resolve_runtime_device(device: str) -> str:
+    """Map generic 'cuda' to this process's local CUDA device when distributed."""
+    if device != "cuda":
+        return device
+    local_rank = _get_local_rank()
+    if local_rank >= 0:
+        return f"cuda:{local_rank}"
+    return "cuda"
+
+
 def load_speech_encoder(model_name: str = "facebook/seamless-m4t-v2-large", device: str = None):
     """Load and freeze the Seamless M4T v2 speech encoder.
 
@@ -51,6 +77,7 @@ def load_speech_encoder(model_name: str = "facebook/seamless-m4t-v2-large", devi
     """
     if device is None:
         device = get_device()
+    runtime_device = _resolve_runtime_device(device)
 
     processor = AutoProcessor.from_pretrained(model_name)
 
@@ -66,7 +93,7 @@ def load_speech_encoder(model_name: str = "facebook/seamless-m4t-v2-large", devi
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    speech_encoder = speech_encoder.to(device)
+    speech_encoder = speech_encoder.to(runtime_device)
     speech_encoder.eval()
     for param in speech_encoder.parameters():
         param.requires_grad = False
@@ -92,6 +119,8 @@ def load_llm_with_lora(
     """
     if device is None:
         device = get_device()
+    runtime_device = _resolve_runtime_device(device)
+    distributed_cuda = device == "cuda" and _is_distributed_run()
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
@@ -116,6 +145,8 @@ def load_llm_with_lora(
             )
         elif load_in_8bit:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+        if distributed_cuda:
+            model_kwargs["device_map"] = {"": _get_local_rank()}
     else:
         # Use bf16 on CUDA (matches training autocast dtype, better range than fp16)
         # Fall back to fp16 on MPS/CPU
@@ -123,14 +154,18 @@ def load_llm_with_lora(
             model_kwargs["torch_dtype"] = torch.bfloat16
         else:
             model_kwargs["torch_dtype"] = torch.float16
-        if device == "cuda":
+        # device_map='auto' is an inference/model-parallel loading path.
+        # Keep it off for distributed data parallel training.
+        if device == "cuda" and not distributed_cuda:
             model_kwargs["device_map"] = "auto"
 
     model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
 
-    # Move to device if not already placed (device_map handles CUDA, manual for MPS/CPU)
-    if not use_quantization and device != "cuda":
-        model = model.to(device)
+    # Move the model to this process's target device unless it has already been
+    # dispatched with device_map='auto'.
+    used_auto_device_map = model_kwargs.get("device_map") == "auto"
+    if not use_quantization and not used_auto_device_map:
+        model = model.to(runtime_device)
 
     # Prepare quantized model for training: casts LayerNorm to float32,
     # enables input gradients on the quantized model.
@@ -179,6 +214,8 @@ def load_llm_from_checkpoint(
 
     if device is None:
         device = get_device()
+    runtime_device = _resolve_runtime_device(device)
+    distributed_cuda = device == "cuda" and _is_distributed_run()
 
     tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir, trust_remote_code=True)
 
@@ -199,12 +236,16 @@ def load_llm_from_checkpoint(
             )
         elif load_in_8bit:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+        if distributed_cuda:
+            model_kwargs["device_map"] = {"": _get_local_rank()}
     else:
         if device == "cuda" and torch.cuda.is_bf16_supported():
             model_kwargs["torch_dtype"] = torch.bfloat16
         else:
             model_kwargs["torch_dtype"] = torch.float16
-        if device == "cuda":
+        # device_map='auto' is an inference/model-parallel loading path.
+        # Keep it off for distributed data parallel training.
+        if device == "cuda" and not distributed_cuda:
             model_kwargs["device_map"] = "auto"
 
     # Load base model, resize embeddings BEFORE loading LoRA (to match saved shapes)
@@ -219,9 +260,9 @@ def load_llm_from_checkpoint(
     # Apply saved LoRA adapters (trainable for continued fine-tuning)
     model = PeftModel.from_pretrained(base_model, checkpoint_dir, is_trainable=is_trainable)
 
-    # Move to device if not already placed (device_map handles CUDA, manual for MPS/CPU)
-    if not use_quantization and device != "cuda":
-        model = model.to(device)
+    used_auto_device_map = model_kwargs.get("device_map") == "auto"
+    if not use_quantization and not used_auto_device_map:
+        model = model.to(runtime_device)
 
     return model, tokenizer
 
@@ -244,6 +285,7 @@ def build_projector(
     """
     if device is None:
         device = get_device()
+    runtime_device = _resolve_runtime_device(device)
 
     if projector_type == "transformer":
         projector = TransformerProjector(
@@ -257,4 +299,4 @@ def build_projector(
             llm_dim=llm_dim,
             downsample_factor=downsample_factor,
         )
-    return projector.to(device)
+    return projector.to(runtime_device)

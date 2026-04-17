@@ -110,24 +110,26 @@ def test_unanswerable_responses():
 
 
 def test_format_chat_messages():
-    """Chat message formatting should produce NAVER Table 4 structure."""
-    from src.data.utils import format_chat_messages, SPEECH_PLACEHOLDER
+    """Chat message formatting should produce system + NAVER Table 4 structure."""
+    from src.data.utils import format_chat_messages, SPEECH_PLACEHOLDER, SYSTEM_PROMPT
 
     messages = format_chat_messages("Transcribe this.", "Hello world")
-    assert len(messages) == 2
-    assert messages[0]["role"] == "user"
-    assert messages[1]["role"] == "assistant"
+    assert len(messages) == 3
+    assert messages[0]["role"] == "system"
+    assert messages[0]["content"] == SYSTEM_PROMPT
+    assert messages[1]["role"] == "user"
+    assert messages[2]["role"] == "assistant"
     # NAVER format: Content: <speech>...</speech>\nQuestion: ...\nYour answer:
-    user_content = messages[0]["content"]
+    user_content = messages[1]["content"]
     assert user_content.startswith("Content: <speech>")
     assert SPEECH_PLACEHOLDER in user_content
     assert "Question: Transcribe this." in user_content
     assert user_content.endswith("Your answer:")
-    assert messages[1]["content"] == "Hello world"
+    assert messages[2]["content"] == "Hello world"
 
     # Without response
     messages = format_chat_messages("Transcribe this.")
-    assert len(messages) == 1
+    assert len(messages) == 2  # system + user
 
 
 def test_speech_projector_shapes():
@@ -197,25 +199,27 @@ def test_stage2_text_only():
 
 
 def test_format_text_only_messages():
-    """Text-only messages should follow NAVER Table 4 format, no speech placeholder."""
-    from src.data.utils import format_text_only_messages, SPEECH_PLACEHOLDER
+    """Text-only messages should follow system + NAVER Table 4 format, no speech placeholder."""
+    from src.data.utils import format_text_only_messages, SPEECH_PLACEHOLDER, SYSTEM_PROMPT
 
-    # Without source_text: Question: ...\nYour answer:
+    # Without source_text: system + Question: ...\nYour answer:
     messages = format_text_only_messages("Translate to German.", "Hallo Welt.")
-    assert len(messages) == 2
-    for m in messages:
+    assert len(messages) == 3
+    assert messages[0]["role"] == "system"
+    assert messages[0]["content"] == SYSTEM_PROMPT
+    for m in messages[1:]:
         assert SPEECH_PLACEHOLDER not in m["content"]
-    assert messages[0]["role"] == "user"
-    assert "Question: Translate to German." in messages[0]["content"]
-    assert messages[0]["content"].endswith("Your answer:")
-    assert messages[1]["content"] == "Hallo Welt."
+    assert messages[1]["role"] == "user"
+    assert "Question: Translate to German." in messages[1]["content"]
+    assert messages[1]["content"].endswith("Your answer:")
+    assert messages[2]["content"] == "Hallo Welt."
 
-    # With source_text: Content: <text>...</text>\nQuestion: ...\nYour answer:
+    # With source_text: system + Content: <text>...</text>\nQuestion: ...\nYour answer:
     messages = format_text_only_messages(
         "Translate to German.", "Hallo Welt.", source_text="Hello World."
     )
-    assert len(messages) == 2
-    user_content = messages[0]["content"]
+    assert len(messages) == 3
+    user_content = messages[1]["content"]
     assert user_content.startswith("Content: <text>Hello World.</text>")
     assert "Question: Translate to German." in user_content
     assert SPEECH_PLACEHOLDER not in user_content

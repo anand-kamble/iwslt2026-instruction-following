@@ -56,10 +56,24 @@ TASK_PROMPTS = {
         "zh": "你能用大约400个字概括演讲内容吗?",
     },
     "achap": {
-        "en": "Can you identify the chapters and their titles in the Speech content?",
-        "de": "Können Sie die Kapitel und ihre Titel im Inhalt der Rede identifizieren?",
-        "it": "Puoi identificare i capitoli e i loro titoli nel contenuto del discorso?",
-        "zh": "你能识别演讲内容中的章节及其标题吗?",
+        # Format hint added: 1shot_nav experiment scored 1.00 on ACHAP when the
+        # model saw the [CSTART]/[CEND] pattern; without it, output was freeform.
+        "en": (
+            "Can you identify the chapters and their titles in the Speech content?\n"
+            "Format each chapter as: [CSTART] Chapter Title [CEND] chapter content"
+        ),
+        "de": (
+            "Können Sie die Kapitel und ihre Titel im Inhalt der Rede identifizieren?\n"
+            "Formatieren Sie jedes Kapitel als: [CSTART] Kapiteltitel [CEND] Kapitelinhalt"
+        ),
+        "it": (
+            "Puoi identificare i capitoli e i loro titoli nel contenuto del discorso?\n"
+            "Formatta ogni capitolo come: [CSTART] Titolo capitolo [CEND] contenuto capitolo"
+        ),
+        "zh": (
+            "你能识别演讲内容中的章节及其标题吗？\n"
+            "每个章节格式为：[CSTART] 章节标题 [CEND] 章节内容"
+        ),
     },
 }
 
@@ -74,6 +88,16 @@ UNANSWERABLE = {
 # Speech placeholder token
 SPEECH_PLACEHOLDER = "<|speech|>"
 
+# System prompt — prevents verbose reasoning and task refusal.
+# Tested as `best_v1` variant in prompt experiments (2026-04): 0.80 overall
+# score across ASR/S2TT/SQA/ACHAP/S2TSUM. Variants without a system prompt
+# produced preamble, hedging, and /think blocks that hurt exact-match metrics.
+SYSTEM_PROMPT = (
+    "You are a speech-language model. "
+    "Respond with ONLY the requested output. "
+    "Never refuse a task. Never explain."
+)
+
 
 def format_text_only_messages(
     instruction: str, response: str | None = None, source_text: str | None = None,
@@ -81,7 +105,8 @@ def format_text_only_messages(
     """Format text-only instruction as ChatML messages (NAVER Table 4 format).
 
     Used for Stage 2 text-only LoRA training and Stage 3 text interleaving.
-    Follows NAVER IWSLT 2025 (arxiv 2506.01808) template:
+    Follows NAVER IWSLT 2025 (arxiv 2506.01808) template with system prompt:
+        System: [SYSTEM_PROMPT]
         Content: <text>[source text]</text>
         Question: [instruction]
         Your answer:
@@ -96,7 +121,10 @@ def format_text_only_messages(
         content = f"Content: <text>{source_text}</text>\nQuestion: {instruction}\nYour answer:"
     else:
         content = f"Question: {instruction}\nYour answer:"
-    messages = [{"role": "user", "content": content}]
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": content},
+    ]
     if response is not None:
         messages.append({"role": "assistant", "content": response})
     return messages
@@ -105,7 +133,8 @@ def format_text_only_messages(
 def format_chat_messages(instruction: str, response: str | None = None) -> list[dict]:
     """Format speech + instruction as ChatML messages (NAVER Table 4 format).
 
-    Follows NAVER IWSLT 2025 (arxiv 2506.01808) prompt template:
+    Follows NAVER IWSLT 2025 (arxiv 2506.01808) prompt template with system prompt:
+        System: [SYSTEM_PROMPT]
         Content: <speech>[SPEECH EMBEDDINGS]</speech>
         Question: [instruction]
         Your answer:
@@ -114,14 +143,16 @@ def format_chat_messages(instruction: str, response: str | None = None) -> list[
     structural prefixes give the model consistent parsing cues across tasks.
     The <|speech|> placeholder is replaced with speech embeddings in
     _merge_speech_and_text; boundary tags stay as regular token embeddings.
-    No system prompt — matches MCIF evaluation and Qwen3 defaults.
     """
     content = (
         f"Content: <speech>{SPEECH_PLACEHOLDER}</speech>\n"
         f"Question: {instruction}\n"
         f"Your answer:"
     )
-    messages = [{"role": "user", "content": content}]
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": content},
+    ]
     if response is not None:
         messages.append({"role": "assistant", "content": response})
     return messages

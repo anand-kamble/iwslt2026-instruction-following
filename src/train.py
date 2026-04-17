@@ -11,17 +11,17 @@ import argparse
 import os
 
 import torch
-from transformers import TrainingArguments, Trainer, TrainerCallback
+from transformers import Trainer, TrainerCallback, TrainingArguments
 
 from src.config import load_config
+from src.data.collator import SpeechTextCollator
 from src.model.build_model import (
-    load_speech_encoder,
-    load_llm_with_lora,
     build_projector,
     get_device,
+    load_llm_with_lora,
+    load_speech_encoder,
 )
-from src.model.speech_llm import SpeechLLM, SPEECH_PLACEHOLDER
-from src.data.collator import SpeechTextCollator
+from src.model.speech_llm import SPEECH_PLACEHOLDER, SpeechLLM
 
 
 class WandbConfigCallback(TrainerCallback):
@@ -31,6 +31,8 @@ class WandbConfigCallback(TrainerCallback):
         self.config = config
 
     def on_train_begin(self, args, state, control, **kwargs):
+        if not state.is_world_process_zero:
+            return
         import wandb
 
         if wandb.run is not None:
@@ -50,6 +52,27 @@ def get_precision_args():
         return {"fp16": True}
     # MPS and CPU: no mixed precision (model already in fp16, compute in fp32)
     return {}
+
+
+def _get_world_size() -> int:
+    try:
+        return int(os.environ.get("WORLD_SIZE", "1"))
+    except ValueError:
+        return 1
+
+
+def _get_local_rank_from_env() -> int:
+    try:
+        return int(os.environ.get("LOCAL_RANK", "-1"))
+    except ValueError:
+        return -1
+
+
+def _resolve_dataloader_persistent_workers(training_config: dict, num_workers: int) -> bool:
+    value = training_config.get("dataloader_persistent_workers")
+    if value is None:
+        return num_workers > 0
+    return bool(value) and num_workers > 0
 
 
 def load_task_datasets(config: dict):
@@ -120,7 +143,18 @@ def main():
         default=None,
         help="Dir with pre-extracted speech features (from extract_features.py)",
     )
+    # torchrun compatibility (PyTorch 2.x passes --local-rank).
+    parser.add_argument("--local-rank", "--local_rank", type=int, default=-1)
     args = parser.parse_args()
+
+    local_rank = args.local_rank if args.local_rank >= 0 else _get_local_rank_from_env()
+    if local_rank >= 0:
+        os.environ["LOCAL_RANK"] = str(local_rank)
+    world_size = _get_world_size()
+    is_distributed = world_size > 1
+
+    if torch.cuda.is_available() and local_rank >= 0:
+        torch.cuda.set_device(local_rank)
 
     config = load_config(args.config)
     training_config = config.get("training", {})
@@ -137,6 +171,8 @@ def main():
 
     print(f"Task: {config['task']} | Stage: {stage} | Text-only: {text_only} | No-LoRA: {no_lora}")
     print(f"Output: {output_dir}")
+    if is_distributed:
+        print(f"Distributed run detected: world_size={world_size}, local_rank={local_rank}")
 
     # Setup wandb — env vars take precedence over YAML config
     wandb_config = config.get("wandb", {})
@@ -210,6 +246,11 @@ def main():
 
         max_steps = training_config.get("max_steps", -1)
         num_epochs = training_config.get("num_epochs", 2) if max_steps <= 0 else 100
+        stage2_num_workers = training_config.get("dataloader_num_workers", 4)
+        stage2_persistent_workers = _resolve_dataloader_persistent_workers(
+            training_config, stage2_num_workers
+        )
+        stage2_ddp_find_unused = training_config.get("ddp_find_unused_parameters")
 
         training_args = TrainingArguments(
             output_dir=output_dir,
@@ -233,8 +274,10 @@ def main():
             save_safetensors=False,
             remove_unused_columns=False,
             gradient_checkpointing=training_config.get("gradient_checkpointing", True),
-            dataloader_num_workers=training_config.get("dataloader_num_workers", 4),
+            dataloader_num_workers=stage2_num_workers,
+            dataloader_persistent_workers=stage2_persistent_workers,
             dataloader_pin_memory=torch.cuda.is_available(),
+            ddp_find_unused_parameters=stage2_ddp_find_unused,
             tf32=torch.cuda.is_available(),
             **get_precision_args(),
         )
@@ -258,6 +301,9 @@ def main():
                     self.task_losses = defaultdict(list)
 
                 def on_log(self, args, state, control, logs=None, **kwargs):
+                    if not state.is_world_process_zero:
+                        self.task_losses.clear()
+                        return
                     if not self.task_losses:
                         return
                     import wandb
@@ -296,9 +342,10 @@ def main():
 
         trainer.train()
 
-        llm.save_pretrained(os.path.join(output_dir, "lora_adapters"))
-        tokenizer.save_pretrained(os.path.join(output_dir, "lora_adapters"))
-        print(f"Stage 2 LoRA saved to {output_dir}/lora_adapters")
+        if trainer.is_world_process_zero():
+            llm.save_pretrained(os.path.join(output_dir, "lora_adapters"))
+            tokenizer.save_pretrained(os.path.join(output_dir, "lora_adapters"))
+            print(f"Stage 2 LoRA saved to {output_dir}/lora_adapters")
         return
 
     # ===== Stage 1 or 3: Speech + LLM pipeline =====
@@ -401,7 +448,9 @@ def main():
                         if pct > 5.0:
                             raise RuntimeError(
                                 f"Incomplete precomputed features for {task_name}: "
-                                f"found {found}, expected {expected} ({pct:.1f}% missing) in {task_dir}"
+                                "found "
+                                f"{found}, expected {expected} "
+                                f"({pct:.1f}% missing) in {task_dir}"
                             )
                         print(
                             f"  {task_name}: {missing} samples missing features "
@@ -461,6 +510,20 @@ def main():
     # Training args — support max_steps
     max_steps = training_config.get("max_steps", -1)
     num_epochs = training_config.get("num_epochs", 3) if max_steps <= 0 else 100
+    train_num_workers = training_config.get("dataloader_num_workers", 4)
+    train_persistent_workers = _resolve_dataloader_persistent_workers(
+        training_config, train_num_workers
+    )
+    ddp_find_unused = training_config.get("ddp_find_unused_parameters")
+    if (
+        ddp_find_unused is None
+        and is_distributed
+        and config["task"] == "multitask"
+        and config.get("text_interleave")
+    ):
+        # In text-only interleaving batches, projector params are intentionally
+        # unused for that step, so DDP must track unused params safely.
+        ddp_find_unused = True
 
     training_args = TrainingArguments(
         output_dir=output_dir,
@@ -485,8 +548,10 @@ def main():
         save_safetensors=False,  # avoid shared tensor error with tied weights
         gradient_checkpointing=training_config.get("gradient_checkpointing", True),
         remove_unused_columns=False,
-        dataloader_num_workers=training_config.get("dataloader_num_workers", 4),
+        dataloader_num_workers=train_num_workers,
+        dataloader_persistent_workers=train_persistent_workers,
         dataloader_pin_memory=torch.cuda.is_available(),
+        ddp_find_unused_parameters=ddp_find_unused,
         tf32=torch.cuda.is_available(),
         **get_precision_args(),
     )
@@ -548,6 +613,8 @@ def main():
             """Log per-parameter-group learning rates separately."""
 
             def on_log(self, args, state, control, logs=None, **kwargs):
+                if not state.is_world_process_zero:
+                    return
                 if trainer.optimizer is None:
                     return
                 import wandb
@@ -567,6 +634,7 @@ def main():
         lr_scheduler_projector = training_config.get("lr_scheduler_projector")
         if lr_scheduler_projector == "constant":
             import math
+
             from torch.optim.lr_scheduler import LambdaLR
 
             sched_type = training_config.get("lr_scheduler_type", "cosine")
@@ -609,6 +677,9 @@ def main():
                 self.task_losses = defaultdict(list)
 
             def on_log(self, args, state, control, logs=None, **kwargs):
+                if not state.is_world_process_zero:
+                    self.task_losses.clear()
+                    return
                 if not self.task_losses:
                     return
                 import wandb
@@ -648,25 +719,26 @@ def main():
     print("Starting training...")
     trainer.train(resume_from_checkpoint=args.resume_from)
 
-    # Save
-    print(f"Saving to {output_dir}")
-    os.makedirs(output_dir, exist_ok=True)
-    torch.save(projector.state_dict(), os.path.join(output_dir, "projector.pt"))
-    if not no_lora:
-        llm.save_pretrained(os.path.join(output_dir, "lora_adapters"))
-        tokenizer.save_pretrained(os.path.join(output_dir, "lora_adapters"))
-
-    # Push to hub if configured
-    hub_config = config.get("hub", {})
-    if (
-        hub_config.get("push_to_hub", False)
-        and hub_config.get("organization", "YOUR_HF_ORG") != "YOUR_HF_ORG"
-    ):
-        repo_id = f"{hub_config['organization']}/iwslt2026-{task_label}"
-        print(f"Pushing to {repo_id}...")
+    if trainer.is_world_process_zero():
+        # Save
+        print(f"Saving to {output_dir}")
+        os.makedirs(output_dir, exist_ok=True)
+        torch.save(projector.state_dict(), os.path.join(output_dir, "projector.pt"))
         if not no_lora:
-            llm.push_to_hub(repo_id)
-            tokenizer.push_to_hub(repo_id)
+            llm.save_pretrained(os.path.join(output_dir, "lora_adapters"))
+            tokenizer.save_pretrained(os.path.join(output_dir, "lora_adapters"))
+
+        # Push to hub if configured
+        hub_config = config.get("hub", {})
+        if (
+            hub_config.get("push_to_hub", False)
+            and hub_config.get("organization", "YOUR_HF_ORG") != "YOUR_HF_ORG"
+        ):
+            repo_id = f"{hub_config['organization']}/iwslt2026-{task_label}"
+            print(f"Pushing to {repo_id}...")
+            if not no_lora:
+                llm.push_to_hub(repo_id)
+                tokenizer.push_to_hub(repo_id)
 
     print("Done!")
 

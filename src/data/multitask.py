@@ -7,10 +7,10 @@ Uses temperature-based sampling to balance tasks with different dataset sizes.
 from __future__ import annotations
 
 import math
+import os
 import random
 from collections.abc import Iterator
 
-import torch
 from torch.utils.data import Dataset, Sampler
 
 
@@ -106,12 +106,27 @@ class TemperatureSampler(Sampler[int]):
         total_samples: int | None = None,
         seed: int = 42,
         batch_size: int = 1,
+        num_replicas: int | None = None,
+        rank: int | None = None,
+        drop_last: bool = False,
     ):
         self.dataset = dataset
         self.temperature = temperature
         self.seed = seed
         self.batch_size = batch_size
         self.text_pairs = text_pairs or {}
+        self.drop_last = drop_last
+        self.epoch = 0
+        self.num_replicas = (
+            num_replicas if num_replicas is not None else int(os.environ.get("WORLD_SIZE", "1"))
+        )
+        self.rank = rank if rank is not None else int(os.environ.get("RANK", "0"))
+        if self.num_replicas < 1:
+            raise ValueError(f"num_replicas must be >= 1, got {self.num_replicas}")
+        if self.rank < 0 or self.rank >= self.num_replicas:
+            raise ValueError(
+                f"rank must be in [0, {self.num_replicas - 1}], got {self.rank}"
+            )
 
         sizes = dataset.task_sizes
         # Epoch size based on speech tasks only (NAVER: text tasks piggyback)
@@ -149,8 +164,7 @@ class TemperatureSampler(Sampler[int]):
             self._task_indices.setdefault(task_name, []).append(global_idx)
 
     def __iter__(self) -> Iterator[int]:
-        rng = random.Random(self.seed)
-        self.seed += 1  # different order each epoch
+        rng = random.Random(self.seed + self.epoch)
 
         # Only independently sample tasks with positive weight
         task_names = [n for n in self.task_probs if self.task_probs[n] > 0]
@@ -179,10 +193,30 @@ class TemperatureSampler(Sampler[int]):
                 idx = rng.choice(self._task_indices[task])
                 indices.append(idx)
 
+        if self.num_replicas > 1:
+            if self.drop_last:
+                remainder = len(indices) % self.num_replicas
+                if remainder:
+                    indices = indices[: len(indices) - remainder]
+            else:
+                pad = (self.num_replicas - len(indices) % self.num_replicas) % self.num_replicas
+                if pad:
+                    indices.extend(indices[:pad])
+            indices = indices[self.rank :: self.num_replicas]
+
+        self.epoch += 1
         return iter(indices)
 
+    def set_epoch(self, epoch: int):
+        """Advance sampler RNG deterministically per epoch (DDP-compatible)."""
+        self.epoch = epoch
+
     def __len__(self):
-        return self.total_samples
+        if self.num_replicas <= 1:
+            return self.total_samples
+        if self.drop_last:
+            return self.total_samples // self.num_replicas
+        return math.ceil(self.total_samples / self.num_replicas)
 
 
 def _align_audio_features(datasets: list) -> list:
