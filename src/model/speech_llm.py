@@ -50,6 +50,16 @@ class SpeechLLM(nn.Module):
         """Delegate gradient checkpointing to the LLM."""
         self.llm.gradient_checkpointing_disable()
 
+    @staticmethod
+    def _strip_to_loss_if_training(outputs, labels):
+        """Avoid returning full logits during training to reduce DDP memory."""
+        if labels is None:
+            return outputs
+        if not isinstance(outputs, dict) and not hasattr(outputs, "loss"):
+            return outputs
+        loss = outputs["loss"] if isinstance(outputs, dict) else outputs.loss
+        return {"loss": loss}
+
     def _get_embed_tokens(self):
         """Get the embedding layer, handling both PEFT-wrapped and vanilla models."""
         # PEFT/Unsloth: llm.model.model.embed_tokens
@@ -138,11 +148,14 @@ class SpeechLLM(nn.Module):
             attention_mask = attention_mask.to(device)
             if labels is not None:
                 labels = labels.to(device)
-            return self.llm(
+            outputs = self.llm(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 labels=labels,
             )
+            if self.training:
+                return self._strip_to_loss_if_training(outputs, labels)
+            return outputs
 
         if input_features.device != device:
             input_features = input_features.to(device)
@@ -183,6 +196,8 @@ class SpeechLLM(nn.Module):
             attention_mask=new_attention_mask,
             labels=new_labels,
         )
+        if self.training:
+            return self._strip_to_loss_if_training(outputs, new_labels)
         return outputs
 
     def _merge_speech_and_text(
