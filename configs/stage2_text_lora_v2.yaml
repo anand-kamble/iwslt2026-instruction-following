@@ -1,0 +1,52 @@
+# Stage 2 v2: Text-only LoRA pre-training (MT + QA, no audio)
+# Hyperparameters adapted from AudioMCQ sft_lora config:
+#   - Higher LoRA rank (16 vs 8) and alpha (32 vs 16)
+#   - LoRA dropout 0.05
+#   - All-linear target modules
+#   - Lower learning rate (1e-5 vs 3e-4)
+# Output: outputs/stage2_text_lora_v2/ (isolated from v1)
+defaults:
+  - base
+
+task: text_lora
+stage: 2
+
+data:
+  train:
+    - mt_europarlst
+    - mt_covost2
+    - sqa_english
+    - sqa_translated
+
+# Paper Stage B: MT 0.6, QA 0.4
+sampling:
+  ratios:
+    mt_de: 0.20
+    mt_it: 0.20
+    mt_zh: 0.20
+    qa_en: 0.10
+    qa_de: 0.10
+    qa_it: 0.10
+    qa_zh: 0.10
+
+training:
+  text_only: true
+  gradient_checkpointing: false
+  num_epochs: 1
+  per_device_train_batch_size: 28
+  gradient_accumulation_steps: 1
+  learning_rate: 1e-5
+  weight_decay: 0.1
+  warmup_ratio: 0.05
+  lr_scheduler_type: cosine
+  logging_steps: 10
+  save_steps: 500
+  save_total_limit: 4
+  logging_dir: ./logs/stage2_v2
+
+  # LoRA config (AudioMCQ-style)
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  lora_target_modules: all-linear
+  max_seq_length: 1024

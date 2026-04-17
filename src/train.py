@@ -167,6 +167,7 @@ def main():
             no_lora=False,
             lora_r=training_config.get("lora_r", 8),
             lora_alpha=training_config.get("lora_alpha", 16),
+            lora_dropout=training_config.get("lora_dropout", 0.0),
             target_modules=training_config.get("lora_target_modules"),
         )
 
@@ -328,6 +329,7 @@ def main():
             no_lora=no_lora,
             lora_r=training_config.get("lora_r", 8),
             lora_alpha=training_config.get("lora_alpha", 16),
+            lora_dropout=training_config.get("lora_dropout", 0.0),
             target_modules=training_config.get("lora_target_modules"),
         )
 
@@ -388,10 +390,22 @@ def main():
                 if has_features:
                     expected = len(task_datasets[task_name])
                     found = len(feature_files)
-                    if found != expected:
-                        raise RuntimeError(
-                            f"Incomplete precomputed features for {task_name}: "
-                            f"found {found}, expected {expected} in {task_dir}"
+                    # A small gap is legitimate: extract_features.py skips
+                    # samples with corrupt audio. PrecomputedWrapper filters
+                    # the dataset down to only indices with feature files.
+                    # Still refuse if the gap is unreasonably large (>5%),
+                    # which usually indicates a mismatched config.
+                    missing = expected - found
+                    if missing > 0:
+                        pct = 100.0 * missing / max(expected, 1)
+                        if pct > 5.0:
+                            raise RuntimeError(
+                                f"Incomplete precomputed features for {task_name}: "
+                                f"found {found}, expected {expected} ({pct:.1f}% missing) in {task_dir}"
+                            )
+                        print(
+                            f"  {task_name}: {missing} samples missing features "
+                            f"({pct:.2f}%) — will be dropped from training"
                         )
                     task_datasets[task_name] = PrecomputedWrapper(
                         task_datasets[task_name], task_dir

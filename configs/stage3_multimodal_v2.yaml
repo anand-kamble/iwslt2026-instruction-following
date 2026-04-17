@@ -1,0 +1,93 @@
+# Stage 3 v2: Multimodal merge initialized from Stage 2 v2 LoRA adapter
+# (AudioMCQ-style LoRA: rank 16, alpha 32, dropout 0.05, all-linear targets)
+# Output: outputs/stage3_multimodal_v2/ (isolated from v1)
+#
+# Same task mixture and training budget as stage3_multimodal.yaml — only
+# difference is the starting LoRA adapter (set via --stage2_checkpoint in
+# scripts/slurm_stage3_v2.sh).
+defaults:
+  - base
+
+task: multitask
+track: short
+stage: 3
+
+tasks:
+  asr:
+    train:
+      - covost2
+      - europarlst
+  s2tt:
+    train:
+      - covost2
+      - europarlst
+    target_languages:
+      - de
+      - it
+      - zh
+  sqa:
+    train:
+      - librisqa
+    languages:
+      - en
+      - de
+      - it
+      - zh
+  s2tsum:
+    languages:
+      - en
+  achap:
+    languages:
+      - en
+    use_audio: true
+
+data: {}
+
+# Text-only interleaving (Paper §3):
+# "Each time we sample a task that has a textual equivalent,
+#  we also sample a batch from the corresponding textual task."
+text_interleave:
+  s2tt_de: mt_de
+  s2tt_it: mt_it
+  s2tt_zh: mt_zh
+  sqa_en: qa_en
+  sqa_de: qa_de
+  sqa_it: qa_it
+  sqa_zh: qa_zh
+
+sampling:
+  ratios:
+    asr: 0.20
+    s2tt_de: 0.10
+    s2tt_it: 0.10
+    s2tt_zh: 0.10
+    sqa_en: 0.10
+    sqa_de: 0.05
+    sqa_it: 0.05
+    sqa_zh: 0.05
+    s2tsum_en: 0.10
+    achap_en: 0.15
+
+training:
+  downsample_factor: 3
+  max_steps: 1000
+  per_device_train_batch_size: 16
+  gradient_accumulation_steps: 16
+  dataloader_num_workers: 2
+  gradient_checkpointing: true
+  learning_rate: 1e-5
+  lr_projector: 1e-5
+  lr_lora: 1e-5
+  weight_decay: 0.1
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  lr_scheduler_projector: constant
+  save_steps: 100
+  logging_steps: 10
+  logging_dir: ./logs/stage3_multimodal_v2
+
+  # LoRA hyperparameters (must match Stage 2 v2 adapter to avoid rank mismatch)
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  lora_target_modules: all-linear

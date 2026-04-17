@@ -1,0 +1,50 @@
+# Stage 2 v3: Text-only LoRA — higher-capacity variant
+#   - LoRA rank 32, alpha 64 (v2 was rank 16, alpha 32)
+#   - Learning rate 2e-4 (v2 was 1e-5)
+#   - 1 epoch
+# Output: outputs/stage2_text_lora_v3/ (isolated from v1 and v2)
+defaults:
+  - base
+
+task: text_lora
+stage: 2
+
+data:
+  train:
+    - mt_europarlst
+    - mt_covost2
+    - sqa_english
+    - sqa_translated
+
+# Paper Stage B: MT 0.6, QA 0.4
+sampling:
+  ratios:
+    mt_de: 0.20
+    mt_it: 0.20
+    mt_zh: 0.20
+    qa_en: 0.10
+    qa_de: 0.10
+    qa_it: 0.10
+    qa_zh: 0.10
+
+training:
+  text_only: true
+  gradient_checkpointing: false
+  num_epochs: 1
+  per_device_train_batch_size: 28
+  gradient_accumulation_steps: 1
+  learning_rate: 2e-4
+  weight_decay: 0.1
+  warmup_ratio: 0.05
+  lr_scheduler_type: cosine
+  logging_steps: 10
+  save_steps: 500
+  save_total_limit: 4
+  logging_dir: ./logs/stage2_v3
+
+  # LoRA config — higher capacity
+  lora_r: 32
+  lora_alpha: 64
+  lora_dropout: 0.05
+  lora_target_modules: all-linear
+  max_seq_length: 1024

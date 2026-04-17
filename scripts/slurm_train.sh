@@ -22,6 +22,9 @@
 # Run only one stage:
 #   sbatch --export=ALL,START_STAGE=2,END_STAGE=2 scripts/slurm_train.sh
 #
+# Resume stage 1 from a checkpoint:
+#   sbatch --export=ALL,START_STAGE=1,END_STAGE=1,SKIP_UPLOAD=1,RESUME_FROM=outputs/stage1_alignment/checkpoint-4500 scripts/slurm_train.sh
+#
 # Skip HF upload:
 #   sbatch --export=ALL,SKIP_UPLOAD=1 scripts/slurm_train.sh
 #
@@ -47,6 +50,7 @@ START_STAGE="${START_STAGE:-1}"
 END_STAGE="${END_STAGE:-99}"
 SKIP_UPLOAD="${SKIP_UPLOAD:-0}"
 REQUIRE_UPLOAD="${REQUIRE_UPLOAD:-0}"
+RESUME_FROM="${RESUME_FROM:-}"
 STAGE3_CONFIG="${STAGE3_CONFIG:-configs/stage3_multimodal.yaml}"
 STAGE3_CONFIG_NAME="$(basename "${STAGE3_CONFIG%.yaml}")"
 
@@ -120,7 +124,12 @@ if [ "$START_STAGE" -le 1 ] && [ "$END_STAGE" -ge 1 ]; then
     echo "STAGE 1: Projector alignment — NAVER Stage A (ASR, LLM frozen)"
     echo "============================================================"
 
-    python src/train.py --config configs/stage1_alignment.yaml
+    STAGE1_ARGS=(--config configs/stage1_alignment.yaml)
+    if [ -n "$RESUME_FROM" ]; then
+        STAGE1_ARGS+=(--resume_from "$RESUME_FROM")
+        echo "Resuming from checkpoint: $RESUME_FROM"
+    fi
+    python src/train.py "${STAGE1_ARGS[@]}"
     echo "Stage 1 complete: $STAGE1_DIR"
 fi
 

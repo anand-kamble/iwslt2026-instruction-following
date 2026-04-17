@@ -125,13 +125,20 @@ def main():
             range(0, len(remaining), args.batch_size), desc=task_name
         ):
             batch_indices = remaining[batch_start : batch_start + args.batch_size]
-            batch_samples = [dataset[i] for i in batch_indices]
 
-            # Load audio per-sample, filtering out failures individually
+            # Load audio per-sample, skipping any sample whose lazy decode or
+            # waveform load raises (e.g. corrupt file, libsndfile format errors).
+            # A single bad sample must not crash the whole extraction.
             audios = []
             valid_indices = []
-            for idx, sample in zip(batch_indices, batch_samples):
-                audio = load_audio_from_sample(sample, resamplers)
+            for idx in batch_indices:
+                try:
+                    sample = dataset[idx]
+                    audio = load_audio_from_sample(sample, resamplers)
+                except Exception as e:
+                    print(f"  {task_name}[{idx}]: skipping ({type(e).__name__}: {e!r})", flush=True)
+                    skipped += 1
+                    continue
                 if audio is None:
                     skipped += 1
                     continue
@@ -186,11 +193,15 @@ def main():
         ) / 1e6
         print(f"  {task_name}: {extracted}/{expected} features, {size_mb:.0f} MB")
         if skipped:
-            print(f"  WARNING: {skipped} samples had null audio and were skipped")
-        if extracted < expected:
-            missing = expected - extracted
+            print(f"  WARNING: {skipped} samples had null/corrupt audio and were skipped")
+        # Only raise if more are missing than we accounted for with skips —
+        # legitimate per-sample failures (corrupt audio, bad format) are expected.
+        missing = expected - extracted
+        unaccounted = missing - skipped
+        if unaccounted > 0:
             raise RuntimeError(
-                f"{task_name}: {missing} samples are still missing from {task_dir}. "
+                f"{task_name}: {unaccounted} samples are unaccounted for in {task_dir} "
+                f"(expected={expected}, extracted={extracted}, skipped={skipped}). "
                 "Refusing to continue with an incomplete precompute cache."
             )
 

@@ -1,26 +1,28 @@
-"""Evaluate a Stage 2 (LoRA-only) checkpoint using the base LLM + LoRA, no projector or audio.
+"""Evaluate a Stage 2 (LoRA-only) checkpoint on text-only MT and SQA tasks.
 
-This is a text-only evaluation: MCIF prompts are fed as plain text without
-audio input. Useful for measuring the LoRA-adapted LLM's instruction-following
-ability in isolation.
+Following NAVER IWSLT 2025 (arxiv 2506.01808) Stage B evaluation:
+- MT: evaluate on CoVoST2 validation split using reference transcripts as source text.
+  Metrics: BLEU4 and COMET.
+- SQA: evaluate on LibriSQA validation split using reference transcripts.
+  Metrics: BERTScore (F1).
+
+No audio is used — reference English transcripts are provided as text input.
 
 Usage:
-    python src/evaluate_lora.py --config configs/stage1_alignment.yaml \
+    python src/evaluate_lora.py --config configs/stage2_text_lora.yaml \
         --checkpoint ./outputs/stage2_text_lora
-    python src/evaluate_lora.py --config configs/stage1_alignment.yaml \
-        --checkpoint ./outputs/stage2_text_lora --languages en de
+    python src/evaluate_lora.py --config configs/stage2_text_lora.yaml \
+        --checkpoint ./outputs/stage2_text_lora --tasks mt --mt_langs de zh
 """
 
 import argparse
-import json
 import os
-import subprocess
 
 import torch
-import yaml
 
 from src.model.build_model import load_llm_from_checkpoint, get_device
-from src.data.utils import format_text_only_messages
+from src.config import load_config
+from src.data.utils import TASK_PROMPTS, UNANSWERABLE, format_text_only_messages
 
 
 def load_lora_checkpoint(checkpoint_dir: str, config: dict = None, device: str = None):
@@ -46,105 +48,205 @@ def load_lora_checkpoint(checkpoint_dir: str, config: dict = None, device: str =
     return llm, tokenizer
 
 
-def run_inference_on_mcif(llm, tokenizer, task: str, language: str, track: str = "short"):
-    """Run text-only inference on MCIF validation set and write output XML."""
+def evaluate_mt(llm, tokenizer, target_lang: str, max_samples: int = None):
+    """Evaluate MT on CoVoST2 validation split with reference transcripts.
+
+    Returns dict with BLEU and COMET scores.
+    """
     from datasets import load_dataset
-    from mcif.io import OutputSample, write_output
+    import sacrebleu
 
-    config_name = f"{track}_fixedprompt"
-    ds = load_dataset("FBK-MT/MCIF", config_name, split="test")
+    covost2_configs = {"de": "en_de", "zh": "en_zh-CN"}
+    if target_lang not in covost2_configs:
+        print(f"  Skipping MT {target_lang}: CoVoST2 doesn't support EN->{target_lang}")
+        return {}
 
-    prompt_key = f"prompt_{language}"
-    samples = []
-    total = len(ds)
+    print(f"  Loading CoVoST2 validation ({target_lang})...")
+    ds = load_dataset("fixie-ai/covost2", covost2_configs[target_lang], split="validation")
+    if "audio" in ds.column_names:
+        ds = ds.remove_columns(["audio"])
+
+    if max_samples and len(ds) > max_samples:
+        ds = ds.select(range(max_samples))
+
+    instruction = TASK_PROMPTS["s2tt"][target_lang]
     device = next(llm.parameters()).device
+    predictions = []
+    references = []
+    sources = []
+    total = len(ds)
 
     for i, example in enumerate(ds):
-        if i % 10 == 0:
-            print(f"  [{i}/{total}] Processing...", flush=True)
-        instruction = example[prompt_key]
+        if i % 50 == 0:
+            print(f"  [{i}/{total}] Generating...", flush=True)
 
-        # Text-only: no speech placeholder, no audio
-        messages = format_text_only_messages(instruction)
+        source_text = example["sentence"]  # English transcript
+        reference = example["translation"]  # Target language reference
+
+        messages = format_text_only_messages(instruction, source_text=source_text)
         text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         text_inputs = tokenizer(text, return_tensors="pt").to(device)
 
         with torch.inference_mode():
             output_ids = llm.generate(
                 **text_inputs,
-                max_new_tokens=512,
+                max_new_tokens=150,
                 do_sample=False,
             )
 
-        # Strip the input prompt — generate() returns full sequence with input_ids
         new_tokens = output_ids[0][text_inputs["input_ids"].shape[1]:]
         output_text = tokenizer.decode(new_tokens, skip_special_tokens=True)
-        samples.append(OutputSample(id=example["id"], value=output_text))
+        predictions.append(output_text)
+        references.append(reference)
+        sources.append(source_text)
 
-    # Write output XML
-    output_path = f"outputs/eval_lora_{task}_{language}_{track}.xml"
-    os.makedirs("outputs", exist_ok=True)
-    write_output(samples, track=track, language=language, output_name=task, output=output_path)
+    # BLEU
+    bleu = sacrebleu.corpus_bleu(predictions, [references])
+    scores = {"BLEU4": bleu.score}
+    print(f"  BLEU4: {bleu.score:.2f}")
 
-    return output_path
-
-
-def run_mcif_eval(output_path: str, track: str, language: str):
-    """Run MCIF evaluation on the output file."""
-    cmd = ["mcif_eval", "-t", track, "-l", language, "-s", output_path]
-    print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        print(f"Evaluation error: {result.stderr}")
-        return {}
-
+    # COMET
     try:
-        parsed = json.loads(result.stdout)
-        if parsed.get("state") == "OK":
-            print(f"Scores for {language}:")
-            for metric, score in parsed["scores"].items():
-                print(f"  {metric}: {score:.4f}")
-            return parsed["scores"]
-        else:
-            print(f"Evaluation failed: {parsed.get('reason', 'unknown')}")
-            return {}
-    except json.JSONDecodeError:
-        print(result.stdout)
-        return {}
+        from comet import download_model, load_from_checkpoint
+
+        print("  Computing COMET...")
+        model_path = download_model("Unbabel/wmt22-comet-da")
+        comet_model = load_from_checkpoint(model_path)
+        comet_data = [
+            {"src": s, "mt": p, "ref": r}
+            for s, p, r in zip(sources, predictions, references)
+        ]
+        comet_output = comet_model.predict(comet_data, batch_size=32, gpus=1 if device == "cuda" else 0)
+        comet_score = comet_output.system_score
+        scores["COMET"] = comet_score
+        print(f"  COMET: {comet_score:.4f}")
+    except Exception as e:
+        print(f"  COMET unavailable: {e}")
+
+    return scores
+
+
+def evaluate_sqa(llm, tokenizer, language: str = "en", max_samples: int = None):
+    """Evaluate SQA on LibriSQA validation split with reference context.
+
+    Returns dict with BERTScore (F1).
+    """
+    from src.data.sqa import load_librisqa_source_dataset
+
+    print(f"  Loading LibriSQA validation ({language})...")
+    ds = load_librisqa_source_dataset("partI.test")
+
+    if max_samples and len(ds) > max_samples:
+        ds = ds.select(range(max_samples))
+
+    device = next(llm.parameters()).device
+    predictions = []
+    references = []
+    total = len(ds)
+
+    for i, example in enumerate(ds):
+        if i % 50 == 0:
+            print(f"  [{i}/{total}] Generating...", flush=True)
+
+        question = example.get("question", "")
+        answer = example.get("answer", "")
+        transcript = example.get("text", "")
+
+        if not answer or answer.lower().strip() in ("unanswerable", "not answerable"):
+            answer = UNANSWERABLE[language]
+
+        prompt_template = TASK_PROMPTS["sqa"][language]
+        instruction = prompt_template.replace("{QUESTION}", question)
+
+        # Provide transcript as source text (reference transcript)
+        source_text = transcript if transcript else None
+        messages = format_text_only_messages(instruction, source_text=source_text)
+        text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        text_inputs = tokenizer(text, return_tensors="pt").to(device)
+
+        with torch.inference_mode():
+            output_ids = llm.generate(
+                **text_inputs,
+                max_new_tokens=150,
+                do_sample=False,
+            )
+
+        new_tokens = output_ids[0][text_inputs["input_ids"].shape[1]:]
+        output_text = tokenizer.decode(new_tokens, skip_special_tokens=True)
+        predictions.append(output_text)
+        references.append(answer)
+
+    # BERTScore
+    try:
+        from bert_score import score as bert_score
+
+        print("  Computing BERTScore...")
+        P, R, F1 = bert_score(predictions, references, lang=language, rescale_with_baseline=True)
+        avg_f1 = F1.mean().item()
+        scores = {"BERTScore-F1": avg_f1}
+        print(f"  BERTScore F1: {avg_f1:.4f}")
+    except Exception as e:
+        print(f"  BERTScore unavailable: {e}")
+        scores = {}
+
+    return scores
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate Stage 2 LoRA checkpoint (text-only, no audio)")
+    parser = argparse.ArgumentParser(
+        description="Evaluate Stage 2 LoRA checkpoint (text-only MT + SQA, following NAVER Stage B)"
+    )
     parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--checkpoint", type=str, required=True, help="Stage 2 checkpoint dir (must contain lora_adapters/)")
-    parser.add_argument("--languages", nargs="+", default=["en", "de", "it", "zh"])
-    parser.add_argument("--track", type=str, default="short", choices=["short", "long"])
+    parser.add_argument("--checkpoint", type=str, required=True,
+                        help="Stage 2 checkpoint dir (must contain lora_adapters/)")
+    parser.add_argument("--tasks", nargs="+", default=["mt", "sqa"],
+                        choices=["mt", "sqa"], help="Which tasks to evaluate")
+    parser.add_argument("--mt_langs", nargs="+", default=["de", "zh"],
+                        help="Target languages for MT evaluation")
+    parser.add_argument("--sqa_lang", type=str, default="en",
+                        help="Language for SQA evaluation")
+    parser.add_argument("--max_samples", type=int, default=None,
+                        help="Max samples per eval set (for quick testing)")
     args = parser.parse_args()
 
-    with open(args.config) as f:
-        config = yaml.safe_load(f)
+    config = load_config(args.config)
 
-    task = config.get("task", "multitask")
-    print(f"Evaluating LoRA-only (text, no audio) | task={task} track={args.track}")
+    print("=" * 60)
+    print("Stage 2 LoRA Evaluation (text-only, NAVER Stage B)")
+    print("=" * 60)
+    print(f"Checkpoint: {args.checkpoint}")
+    print(f"Tasks: {args.tasks}")
+    if "mt" in args.tasks:
+        print(f"MT languages: {args.mt_langs}")
+    if "sqa" in args.tasks:
+        print(f"SQA language: {args.sqa_lang}")
+    print()
 
-    # Load model (base LLM + LoRA, no projector, no speech encoder)
+    # Load model
+    print("Loading model...")
     llm, tokenizer = load_lora_checkpoint(args.checkpoint, config)
 
-    # Run evaluation for each language
     all_scores = {}
-    for language in args.languages:
-        print(f"\n=== Evaluating language={language} ===")
-        output_path = run_inference_on_mcif(llm, tokenizer, task, language, args.track)
-        print(f"Output written to: {output_path}")
 
-        scores = run_mcif_eval(output_path, args.track, language)
-        all_scores[language] = scores
+    # MT evaluation
+    if "mt" in args.tasks:
+        for lang in args.mt_langs:
+            print(f"\n=== MT EN->{lang} ===")
+            scores = evaluate_mt(llm, tokenizer, lang, args.max_samples)
+            all_scores[f"mt_{lang}"] = scores
+
+    # SQA evaluation
+    if "sqa" in args.tasks:
+        print(f"\n=== SQA ({args.sqa_lang}) ===")
+        scores = evaluate_sqa(llm, tokenizer, args.sqa_lang, args.max_samples)
+        all_scores[f"sqa_{args.sqa_lang}"] = scores
 
     # Summary
-    print("\n=== Summary ===")
-    for lang, scores in all_scores.items():
-        print(f"  {lang}: {scores}")
+    print("\n" + "=" * 60)
+    print("Summary")
+    print("=" * 60)
+    for task_name, scores in all_scores.items():
+        print(f"  {task_name}: {scores}")
 
 
 if __name__ == "__main__":
