@@ -75,6 +75,43 @@ def _resolve_dataloader_persistent_workers(training_config: dict, num_workers: i
     return bool(value) and num_workers > 0
 
 
+def _resolve_gradient_checkpointing_kwargs(
+    training_config: dict,
+    *,
+    is_distributed: bool,
+    ddp_find_unused_parameters: bool | None = None,
+) -> dict | None:
+    """Return safe gradient-checkpointing kwargs for the current runtime.
+
+    DDP + reentrant checkpointing can trigger:
+      "Expected to mark a variable ready only once"
+    especially with PEFT/LoRA adapters.
+    """
+    if not training_config.get("gradient_checkpointing", True):
+        return None
+
+    raw_kwargs = training_config.get("gradient_checkpointing_kwargs")
+    kwargs = dict(raw_kwargs) if isinstance(raw_kwargs, dict) else {}
+
+    # Keep distributed runs on the safer non-reentrant checkpoint path.
+    if is_distributed and kwargs.get("use_reentrant", None) is None:
+        kwargs["use_reentrant"] = False
+
+    # This combination is known to be problematic in practice.
+    if (
+        is_distributed
+        and ddp_find_unused_parameters
+        and kwargs.get("use_reentrant", True)
+    ):
+        print(
+            "WARNING: Overriding gradient_checkpointing_kwargs.use_reentrant=True "
+            "to False for DDP + ddp_find_unused_parameters compatibility."
+        )
+        kwargs["use_reentrant"] = False
+
+    return kwargs or None
+
+
 def load_task_datasets(config: dict):
     """Load training datasets based on task config."""
     task = config["task"]
@@ -251,6 +288,11 @@ def main():
             training_config, stage2_num_workers
         )
         stage2_ddp_find_unused = training_config.get("ddp_find_unused_parameters")
+        stage2_gc_kwargs = _resolve_gradient_checkpointing_kwargs(
+            training_config,
+            is_distributed=is_distributed,
+            ddp_find_unused_parameters=stage2_ddp_find_unused,
+        )
 
         training_args = TrainingArguments(
             output_dir=output_dir,
@@ -274,6 +316,7 @@ def main():
             save_safetensors=False,
             remove_unused_columns=False,
             gradient_checkpointing=training_config.get("gradient_checkpointing", True),
+            gradient_checkpointing_kwargs=stage2_gc_kwargs,
             dataloader_num_workers=stage2_num_workers,
             dataloader_persistent_workers=stage2_persistent_workers,
             dataloader_pin_memory=torch.cuda.is_available(),
@@ -524,6 +567,11 @@ def main():
         # In text-only interleaving batches, projector params are intentionally
         # unused for that step, so DDP must track unused params safely.
         ddp_find_unused = True
+    train_gc_kwargs = _resolve_gradient_checkpointing_kwargs(
+        training_config,
+        is_distributed=is_distributed,
+        ddp_find_unused_parameters=ddp_find_unused,
+    )
 
     training_args = TrainingArguments(
         output_dir=output_dir,
@@ -547,6 +595,7 @@ def main():
         save_total_limit=3,
         save_safetensors=False,  # avoid shared tensor error with tied weights
         gradient_checkpointing=training_config.get("gradient_checkpointing", True),
+        gradient_checkpointing_kwargs=train_gc_kwargs,
         remove_unused_columns=False,
         dataloader_num_workers=train_num_workers,
         dataloader_persistent_workers=train_persistent_workers,
