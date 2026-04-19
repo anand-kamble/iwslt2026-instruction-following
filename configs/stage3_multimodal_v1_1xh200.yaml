@@ -1,0 +1,85 @@
+# Stage 3 v1 (1x H200): Multimodal merge using Stage 2 v1 LoRA adapter.
+# LoRA params match Stage 2 v1 (base.yaml defaults: rank 8, alpha 16, specific
+# target modules, lr 3e-4). Output: outputs/stage3_multimodal_v1_1xh200/
+defaults:
+  - base
+
+task: multitask
+track: short
+stage: 3
+
+tasks:
+  asr:
+    train:
+      - covost2
+      - europarlst
+  s2tt:
+    train:
+      - covost2
+      - europarlst
+    target_languages:
+      - de
+      - it
+      - zh
+  sqa:
+    train:
+      - librisqa
+    languages:
+      - en
+      - de
+      - it
+      - zh
+  s2tsum:
+    languages:
+      - en
+  achap:
+    languages:
+      - en
+    use_audio: true
+
+data: {}
+
+text_interleave:
+  s2tt_de: mt_de
+  s2tt_it: mt_it
+  s2tt_zh: mt_zh
+  sqa_en: qa_en
+  sqa_de: qa_de
+  sqa_it: qa_it
+  sqa_zh: qa_zh
+
+sampling:
+  ratios:
+    asr: 0.20
+    s2tt_de: 0.10
+    s2tt_it: 0.10
+    s2tt_zh: 0.10
+    sqa_en: 0.10
+    sqa_de: 0.05
+    sqa_it: 0.05
+    sqa_zh: 0.05
+    s2tsum_en: 0.10
+    achap_en: 0.15
+
+training:
+  downsample_factor: 3
+  max_steps: 3000
+
+  # 1x H200 141GB: batch 16 x accum 16 = 256 (matches paper global batch).
+  per_device_train_batch_size: 16
+  gradient_accumulation_steps: 16
+
+  dataloader_num_workers: 2
+  dataloader_persistent_workers: true
+  gradient_checkpointing: true
+
+  learning_rate: 1e-5
+  lr_projector: 1e-5
+  lr_lora: 3e-4
+  weight_decay: 0.1
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  lr_scheduler_projector: constant
+  save_steps: 300
+  logging_steps: 10
+  logging_dir: ./logs/stage3_multimodal_v1_1xh200

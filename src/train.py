@@ -601,6 +601,7 @@ def main():
         dataloader_persistent_workers=train_persistent_workers,
         dataloader_pin_memory=torch.cuda.is_available(),
         ddp_find_unused_parameters=ddp_find_unused,
+        ddp_timeout=int(training_config.get("ddp_timeout", 7200)),
         tf32=torch.cuda.is_available(),
         **get_precision_args(),
     )

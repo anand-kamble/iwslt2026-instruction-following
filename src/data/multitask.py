@@ -172,19 +172,24 @@ class TemperatureSampler(Sampler[int]):
 
         indices = []
         if self.batch_size > 1:
-            # Yield in batch-sized groups from the same task.
-            # This ensures homogeneous batches (all speech or all text-only),
-            # required for interleaved text training (NAVER IWSLT 2025 Stage C).
+            # Emit task blocks of size `batch_size * num_replicas` so that after
+            # the stride-`num_replicas` slicing below, each rank's per-device
+            # batch is fully homogeneous (all from one task). This is required
+            # for DDP correctness: mixed-modality batches desync ranks because
+            # the collator drops text-only samples when any audio sample is
+            # present, and because the projector is used by some ranks but not
+            # others within the same optimizer step.
+            block = self.batch_size * max(self.num_replicas, 1)
             while len(indices) < self.total_samples:
                 task = rng.choices(task_names, weights=task_weights, k=1)[0]
-                for _ in range(self.batch_size):
+                for _ in range(block):
                     idx = rng.choice(self._task_indices[task])
                     indices.append(idx)
-                # Paired text interleaving (NAVER Stage C): speech batch is
-                # immediately followed by a batch from the text equivalent.
+                # Paired text interleaving (NAVER Stage C): speech block is
+                # immediately followed by a block from the text equivalent.
                 text_pair = self.text_pairs.get(task)
                 if text_pair and text_pair in self._task_indices:
-                    for _ in range(self.batch_size):
+                    for _ in range(block):
                         idx = rng.choice(self._task_indices[text_pair])
                         indices.append(idx)
         else:
@@ -351,6 +356,17 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
                     continue
                 if max_samples and len(ds) > max_samples:
                     ds = ds.select(range(max_samples))
+                # Text-only datasets inherit schemas from speech sources
+                # (e.g., CoVoST2 carries an `audio_path` column even for the
+                # text-only MT split, pointing at files we never downloaded).
+                # Drop those columns so the collator's audio detection picks
+                # the text-only path.
+                stale_audio_cols = [
+                    c for c in ds.column_names
+                    if c in ("audio", "audio_path", "audio_array", "precomputed_features")
+                ]
+                if stale_audio_cols:
+                    ds = ds.remove_columns(stale_audio_cols)
                 all_datasets[loader_spec] = ds
             except (ValueError, FileNotFoundError) as e:
                 print(f"Skipping text interleave {speech_task}→{loader_spec}: {e}")

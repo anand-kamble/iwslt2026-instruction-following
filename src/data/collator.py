@@ -30,7 +30,7 @@ class SpeechTextCollator:
     tokenizer: object  # Qwen tokenizer
     max_seq_length: int = 4096
     text_only: bool = False
-    max_audio_seconds: int = 30  # truncate audio to avoid OOM in speech encoder
+    max_audio_seconds: int = 15  # truncate audio to avoid OOM in speech encoder
 
     def __post_init__(self):
         self._resamplers = {}
@@ -45,11 +45,21 @@ class SpeechTextCollator:
 
         # Auto-detect text-only batches: skip audio processing if no samples have audio.
         # This supports interleaved text batches in Stage 3 (NAVER IWSLT 2025).
-        has_audio = not self.text_only and any(
-            "audio" in f or "audio_path" in f or "audio_array" in f
-            or "precomputed_features" in f
-            for f in features
-        )
+        # Require TRUTHY values, not just key presence — MT/QA text-only datasets
+        # sometimes carry stale `audio_path=None` fields from their source schemas.
+        def _sample_has_audio(f: dict) -> bool:
+            if "precomputed_features" in f and f["precomputed_features"] is not None:
+                return True
+            if f.get("audio_path"):
+                return True
+            if f.get("audio_array") is not None:
+                return True
+            audio = f.get("audio")
+            if isinstance(audio, dict):
+                return audio.get("array") is not None
+            return audio is not None
+
+        has_audio = not self.text_only and any(_sample_has_audio(f) for f in features)
         if has_audio:
             if "precomputed_features" in features[0]:
                 # Precomputed mode: pad pre-extracted features
@@ -115,25 +125,34 @@ class SpeechTextCollator:
                         )
 
                 if not audios:
-                    raise RuntimeError(
-                        "collator: all audio samples in batch failed to load"
+                    # Every audio sample failed to load. This happens when a
+                    # text-only task (mt_*, qa_*) carries stale `audio_path`
+                    # strings inherited from its source schema. Fall back to
+                    # treating the batch as text-only so training — and DDP
+                    # collectives — stay in sync across ranks.
+                    print(
+                        "[collator] all audio samples failed to load; "
+                        f"falling back to text-only (tasks={set(tasks) if tasks else set()})",
+                        file=sys.stderr,
+                        flush=True,
                     )
+                    has_audio = False
+                else:
+                    if len(kept_features) != len(features):
+                        features = kept_features
+                        tasks = [f.get("_task") for f in features]
+                        if any(tasks):
+                            batch["_tasks"] = tasks
 
-                if len(kept_features) != len(features):
-                    features = kept_features
-                    tasks = [f.get("_task") for f in features]
-                    if any(tasks):
-                        batch["_tasks"] = tasks
-
-                audio_inputs = self.processor(
-                    audios=audios,
-                    sampling_rate=16000,
-                    return_tensors="pt",
-                    padding=True,
-                    return_attention_mask=True,
-                )
-                batch["input_features"] = audio_inputs["input_features"]
-                batch["input_features_attention_mask"] = audio_inputs["attention_mask"]
+                    audio_inputs = self.processor(
+                        audios=audios,
+                        sampling_rate=16000,
+                        return_tensors="pt",
+                        padding=True,
+                        return_attention_mask=True,
+                    )
+                    batch["input_features"] = audio_inputs["input_features"]
+                    batch["input_features_attention_mask"] = audio_inputs["attention_mask"]
 
         # Tokenize text (full conversation including response)
         texts = []
