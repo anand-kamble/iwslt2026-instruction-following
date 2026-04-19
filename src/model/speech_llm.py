@@ -42,6 +42,28 @@ class SpeechLLM(nn.Module):
                 return p.dtype
         return torch.float32
 
+    @staticmethod
+    def _has_trainable_params(module: nn.Module) -> bool:
+        return any(p.requires_grad for p in module.parameters())
+
+    def train(self, mode: bool = True):
+        """Keep frozen submodules in eval mode even during training.
+
+        Trainer calls `model.train()` each step/epoch, which recursively flips
+        all children to train mode. The speech encoder is always frozen and
+        should stay deterministic (dropout disabled). In Stage 1, the LLM may
+        also be fully frozen and should likewise remain in eval mode.
+        """
+        super().train(mode)
+
+        # Frozen speech encoder should never run with dropout enabled.
+        self.speech_encoder.eval()
+
+        # Stage 1 projector-only training freezes the whole LLM.
+        if not self._has_trainable_params(self.llm):
+            self.llm.eval()
+        return self
+
     def gradient_checkpointing_enable(self, **kwargs):
         """Delegate gradient checkpointing to the LLM."""
         self.llm.gradient_checkpointing_enable(**kwargs)
