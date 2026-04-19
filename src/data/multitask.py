@@ -117,6 +117,10 @@ class TemperatureSampler(Sampler[int]):
         self.text_pairs = text_pairs or {}
         self.drop_last = drop_last
         self.epoch = 0
+        # NOTE:
+        # With HF Trainer + accelerate, sampler sharding is handled downstream
+        # by BatchSamplerShard. Keep this sampler global and only use
+        # num_replicas to align modality blocks across ranks.
         self.num_replicas = (
             num_replicas if num_replicas is not None else int(os.environ.get("WORLD_SIZE", "1"))
         )
@@ -138,6 +142,10 @@ class TemperatureSampler(Sampler[int]):
             # Use explicit ratios — normalize to sum to 1.0
             present = {k: v for k, v in ratios.items() if k in sizes}
             ratio_sum = sum(present.values())
+            if ratio_sum <= 0:
+                raise ValueError(
+                    "ratios must include at least one positive weight for a present task"
+                )
             self.task_probs = {name: p / ratio_sum for name, p in present.items()}
             # Tasks in dataset but not in ratios get zero weight
             # (text-pair targets are sampled via pairing, not independently)
@@ -150,6 +158,8 @@ class TemperatureSampler(Sampler[int]):
             active_sizes = {n: s for n, s in sizes.items() if n not in text_pair_targets}
             raw_probs = {name: math.pow(size, temperature) for name, size in active_sizes.items()}
             prob_sum = sum(raw_probs.values())
+            if prob_sum <= 0:
+                raise ValueError("no tasks available for temperature sampling")
             self.task_probs = {name: p / prob_sum for name, p in raw_probs.items()}
             for name in sizes:
                 if name not in self.task_probs:
@@ -157,57 +167,74 @@ class TemperatureSampler(Sampler[int]):
 
         # Total samples per epoch (default: speech tasks only)
         self.total_samples = total_samples or total_fallback
+        if self.total_samples <= 0:
+            raise ValueError(f"total_samples must be positive, got {self.total_samples}")
 
         # Build per-task index ranges for fast lookup
         self._task_indices: dict[str, list[int]] = {}
         for global_idx, (task_name, _) in enumerate(dataset._index_map):
             self._task_indices.setdefault(task_name, []).append(global_idx)
 
+    def _global_block_size(self) -> int:
+        return max(self.batch_size, 1) * max(self.num_replicas, 1)
+
+    def _active_task_names_and_weights(self) -> tuple[list[str], list[float]]:
+        task_names = [
+            name
+            for name, prob in self.task_probs.items()
+            if prob > 0 and name in self._task_indices and self._task_indices[name]
+        ]
+        if not task_names:
+            raise RuntimeError("TemperatureSampler has no active tasks with non-zero probability")
+        task_weights = [self.task_probs[name] for name in task_names]
+        return task_names, task_weights
+
+    def _sample_epoch_plan(self, epoch: int) -> list[tuple[str, str | None]]:
+        """Sample task plan for one epoch.
+
+        Returns:
+            list of (task_name, paired_task_name_or_none) for each primary block.
+        """
+        rng = random.Random(self.seed + epoch)
+        task_names, task_weights = self._active_task_names_and_weights()
+        block = self._global_block_size()
+
+        emitted = 0
+        plan: list[tuple[str, str | None]] = []
+        while emitted < self.total_samples:
+            task = rng.choices(task_names, weights=task_weights, k=1)[0]
+            text_pair = self.text_pairs.get(task)
+            if not text_pair or text_pair not in self._task_indices:
+                text_pair = None
+            plan.append((task, text_pair))
+            emitted += block
+            if text_pair is not None:
+                emitted += block
+        return plan
+
+    def _num_samples_for_plan(self, plan: list[tuple[str, str | None]]) -> int:
+        block = self._global_block_size()
+        paired_blocks = sum(1 for _, text_pair in plan if text_pair is not None)
+        return block * (len(plan) + paired_blocks)
+
     def __iter__(self) -> Iterator[int]:
-        rng = random.Random(self.seed + self.epoch)
+        # Task choices and sample choices use separate deterministic RNG streams
+        # so __len__ can reuse the exact task plan.
+        plan = self._sample_epoch_plan(self.epoch)
+        rng = random.Random(self.seed + self.epoch + 1_000_003)
+        block = self._global_block_size()
 
-        # Only independently sample tasks with positive weight
-        task_names = [n for n in self.task_probs if self.task_probs[n] > 0]
-        task_weights = [self.task_probs[n] for n in task_names]
-
-        indices = []
-        if self.batch_size > 1:
-            # Emit task blocks of size `batch_size * num_replicas` so that after
-            # the stride-`num_replicas` slicing below, each rank's per-device
-            # batch is fully homogeneous (all from one task). This is required
-            # for DDP correctness: mixed-modality batches desync ranks because
-            # the collator drops text-only samples when any audio sample is
-            # present, and because the projector is used by some ranks but not
-            # others within the same optimizer step.
-            block = self.batch_size * max(self.num_replicas, 1)
-            while len(indices) < self.total_samples:
-                task = rng.choices(task_names, weights=task_weights, k=1)[0]
+        indices: list[int] = []
+        for task, text_pair in plan:
+            task_pool = self._task_indices[task]
+            for _ in range(block):
+                indices.append(rng.choice(task_pool))
+            # Paired text interleaving (NAVER Stage C): speech block is
+            # immediately followed by a block from the text equivalent.
+            if text_pair is not None:
+                pair_pool = self._task_indices[text_pair]
                 for _ in range(block):
-                    idx = rng.choice(self._task_indices[task])
-                    indices.append(idx)
-                # Paired text interleaving (NAVER Stage C): speech block is
-                # immediately followed by a block from the text equivalent.
-                text_pair = self.text_pairs.get(task)
-                if text_pair and text_pair in self._task_indices:
-                    for _ in range(block):
-                        idx = rng.choice(self._task_indices[text_pair])
-                        indices.append(idx)
-        else:
-            for _ in range(self.total_samples):
-                task = rng.choices(task_names, weights=task_weights, k=1)[0]
-                idx = rng.choice(self._task_indices[task])
-                indices.append(idx)
-
-        if self.num_replicas > 1:
-            if self.drop_last:
-                remainder = len(indices) % self.num_replicas
-                if remainder:
-                    indices = indices[: len(indices) - remainder]
-            else:
-                pad = (self.num_replicas - len(indices) % self.num_replicas) % self.num_replicas
-                if pad:
-                    indices.extend(indices[:pad])
-            indices = indices[self.rank :: self.num_replicas]
+                    indices.append(rng.choice(pair_pool))
 
         self.epoch += 1
         return iter(indices)
@@ -217,11 +244,7 @@ class TemperatureSampler(Sampler[int]):
         self.epoch = epoch
 
     def __len__(self):
-        if self.num_replicas <= 1:
-            return self.total_samples
-        if self.drop_last:
-            return self.total_samples // self.num_replicas
-        return math.ceil(self.total_samples / self.num_replicas)
+        return self._num_samples_for_plan(self._sample_epoch_plan(self.epoch))
 
 
 def _align_audio_features(datasets: list) -> list:
