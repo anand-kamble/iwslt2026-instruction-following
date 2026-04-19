@@ -63,6 +63,24 @@ TASK_PROMPTS = {
     },
 }
 
+# Canonical instructions for synthetic T1-T10 (Stage 3 surprise-aware).
+# Generation-time prompts (with few-shot examples) live in prompts/synthetic/.
+# These are the terse training-time instructions the model sees in the
+# Question: field, matching the NAVER style for other tasks above.
+SYNTHETIC_TASK_PROMPTS = {
+    "T1_keywords": "Extract 3 to 5 keywords or short phrases from the content as a comma-separated list.",
+    "T2_ner": 'Identify named entities in the content and return JSON with keys "PER", "ORG", and "LOC".',
+    "T3_gist_en": "Summarize the content in a single English sentence of 10 to 25 words.",
+    "T4_topic": "State the topic or subject area of the content in 1 to 3 words.",
+    "T5_numeric_qa": "Produce one numeric question-answer pair about the content in the form 'Q: <question> || A: <number> <unit>'.",
+    "T6_gist_de": "Summarize the content in a single German sentence of 10 to 25 words.",
+    "T7_gist_zh": "Summarize the content in a single concise Simplified Chinese sentence.",
+    "T8_tone_en": "Describe the speaker's vocal style — tone, pace, energy, prosody — in 1 to 2 English sentences.",
+    "T9_tone_de": "Describe the speaker's vocal style in 1 to 2 German sentences.",
+    "T10_tone_zh": "Describe the speaker's vocal style in 1 to 2 Simplified Chinese sentences.",
+}
+
+
 # Unanswerable responses for SQA
 UNANSWERABLE = {
     "en": "Not answerable.",

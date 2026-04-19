@@ -1,0 +1,18 @@
+Fasse die Kernaussage einer englischen Rede in einem einzigen deutschen Satz von 8 bis 25 Wörtern zusammen. Der Ausgangstext ist ein YouTube-Kapitel oder Talk und kann Begrüßungen, "in diesem Video"-Eröffnungen, Beispiele, Abo-Aufforderungen oder Sponsor-Hinweise enthalten — IGNORIERE all das und konzentriere dich auf das zentrale Argument oder Ergebnis.
+
+Dein Output MUSS:
+- Genau ein natürlicher, idiomatischer deutscher Satz sein — KEINE wörtliche Übersetzung.
+- Die Hauptaussage verdichten, nicht Zeile für Zeile paraphrasieren.
+- Typisch deutsche Mittel einsetzen: Adverbial voranstellen, Komposita bilden, prägnante Verben wählen, Aktiv/Passiv wechseln.
+- Eigennamen und konkrete Zahlen in ihrer deutschen Standardform oder im Original beibehalten.
+
+Gib NUR bei reinem Füllmaterial, Werbung oder unverständlichem Input NONE zurück. Keine Anführungszeichen, kein Markdown, keine Zeilenumbrüche.
+
+TRANSCRIPT: Welcome back — if you're new, hit subscribe. A study out of Tokyo last month in Nature Climate Change looked at 240 coastal stations going back to 1990 and found sea temperatures rising about 0.3 degrees Celsius per decade. It's not a summer spike — it's across all seasons and depths. Dr. Tanaka, lead author, called it "alarming for fisheries and coastal ecosystems." Let's dig into the methodology.
+GIST_DE: Eine Tokioter Studie belegt seit 1990 einen stetigen Anstieg der Meerestemperaturen an Japans Küste um 0,3 Grad pro Jahrzehnt.
+TRANSCRIPT: Alright everyone, last chapter I showed you the baseline model. Now here's the twist. When we fine-tuned the same transformer with a curriculum that gradually increases structural novelty, accuracy on the held-out compositional splits jumped from near zero to sixty-seven percent. We ran the same experiment on SCAN, COGS, and our new CompoBench dataset — same pattern. So the lesson is: training schedule matters more than architecture for compositional generalization.
+GIST_DE: Ein stufenweises Curriculum hebt die Genauigkeit von Transformern auf kompositionalen Aufgaben von nahe null auf 67 Prozent.
+TRANSCRIPT: Hey guys what's up, welcome back to the channel. Huge thanks to NordVPN for sponsoring this video — use code SPEECH for 20 percent off your first year. Smash that like button, and if you're new, consider subscribing. We're almost at one hundred thousand. Alright, let's get into today's topic.
+GIST_DE: NONE
+TRANSCRIPT: {{TRANSCRIPT}}
+GIST_DE:

@@ -1,0 +1,9 @@
+Given an English speech transcript, produce one question-answer pair that targets a numeric fact stated in the transcript. Output exactly one line in this format: Q: <question> || A: <number and unit>. The question should be a natural sentence a listener might ask. The answer should include a digit or spelled-out number plus any unit present in the transcript. No explanation, no quotes, no markdown, no line breaks. Return NONE if the transcript has no quantitative claim or is pure filler.
+TRANSCRIPT: Scientists measured ocean temperatures reaching 30.5 degrees Celsius off the Japanese coast last summer.
+QA: Q: What ocean temperature was measured off the Japanese coast last summer? || A: 30.5 degrees Celsius
+TRANSCRIPT: Uh, so yeah, I think, you know, that's about all.
+QA: NONE
+TRANSCRIPT: The company laid off roughly 12,000 workers across its European offices in the third quarter.
+QA: Q: How many workers did the company lay off across its European offices? || A: roughly 12,000 workers
+TRANSCRIPT: {{TRANSCRIPT}}
+QA:

@@ -1,0 +1,9 @@
+Extract named entities from an English speech transcript. Return a single line of compact JSON with exactly these keys: "PER" (people), "ORG" (organizations, teams, agencies), "LOC" (cities, countries, regions, physical places). Values are lists of strings, empty list if none. Preserve the surface form as spoken. No other keys. No commentary. No markdown. Return {"PER":[],"ORG":[],"LOC":[]} if the transcript has no entities or is pure filler.
+TRANSCRIPT: Angela Merkel visited the United Nations headquarters in New York to meet with the Secretary General.
+ENTITIES: {"PER":["Angela Merkel"],"ORG":["United Nations"],"LOC":["New York"]}
+TRANSCRIPT: Um, yeah, I mean, we just kind of went there, you know.
+ENTITIES: {"PER":[],"ORG":[],"LOC":[]}
+TRANSCRIPT: Apple announced the new iPhone in Cupertino yesterday, with Tim Cook leading the keynote.
+ENTITIES: {"PER":["Tim Cook"],"ORG":["Apple"],"LOC":["Cupertino"]}
+TRANSCRIPT: {{TRANSCRIPT}}
+ENTITIES:

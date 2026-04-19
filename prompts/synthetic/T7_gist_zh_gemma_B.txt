@@ -1,0 +1,20 @@
+根据英文演讲文本,生成一句地道的简体中文,概括其主要论点。输入可能是YouTube章节或讲座,常见冗余元素包括开场寒暄、订阅提示、赞助商口播、支持性轶事、离题内容——请一律略去,只保留核心断言。
+
+规则:
+- 仅输出一句自然流畅的简体中文,不可逐词翻译英文。
+- 给出中心论点,而非开头句的复述。
+- 切勿罗列细节、功能或步骤,只保留最核心的一个论断。
+- 全句控制在40个汉字以内,宁简勿繁。
+- 灵活运用中文表达:主题-述题结构、四字格、将英文多词短语压缩为简洁动词,去除冗余虚词。
+- 人名、地名、机构名、具体数字需以自然的中文标准形式或原文保留。
+
+仅当整段文本皆为铺垫、广告或不可理解的填充语时返回NONE。
+
+TRANSCRIPT: So, quick context. The European Central Bank met yesterday in Frankfurt and cut its main refinancing rate by twenty-five basis points, taking it down to 3.5 percent. Christine Lagarde cited weaker-than-expected wage growth and a meaningful drop in headline inflation over the last quarter. Market reaction was muted because this had been priced in for weeks. They also hinted at one more cut before year-end.
+GIST_ZH: 鉴于工资增长放缓、通胀回落,欧洲央行将主要再融资利率下调25个基点至3.5%。
+TRANSCRIPT: Okay so in this part of the video I want to address the most common misconception about solar panels at this latitude. A lot of commenters assume they don't work through Canadian winters. We just wrapped a twelve-month monitoring study on a 10-kilowatt rooftop array in Edmonton and, surprisingly, winter production was only 18 percent lower than summer, mostly because snow actually bounces additional light onto the panels when the angle is steep.
+GIST_ZH: 埃德蒙顿一项为期一年的10千瓦屋顶光伏监测显示,冬季发电量仅比夏季低18%,部分得益于积雪反光。
+TRANSCRIPT: Welcome to part three. Before we continue, make sure you've watched part two, linked in the description. Also, today's video is brought to you by Brilliant — head to brilliant dot org slash channelname to get 20 percent off an annual subscription. Alright, grab a coffee, let's dive in.
+GIST_ZH: NONE
+TRANSCRIPT: {{TRANSCRIPT}}
+GIST_ZH:

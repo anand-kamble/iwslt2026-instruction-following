@@ -297,6 +297,27 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
             except (ValueError, FileNotFoundError) as e:
                 print(f"Skipping ACHAP/{lang}: {e}")
 
+    # Synthetic T1–T10 (Stage 3 surprise-aware tasks).
+    if "synthetic" in tasks_config:
+        from src.data.synthetic import (
+            ALL_SYNTHETIC_TASKS,
+            TEXT_TASKS as SYNTH_TEXT_TASKS,
+            load_synthetic_task,
+        )
+
+        synth_config = tasks_config["synthetic"]
+        synth_tasks = synth_config.get("tasks") or sorted(ALL_SYNTHETIC_TASKS)
+        synth_max = synth_config.get("max_samples", max_samples)
+        text_model_tag = synth_config.get("text_model_tag")
+        audio_model_tag = synth_config.get("audio_model_tag")
+        for task_name in synth_tasks:
+            tag = text_model_tag if task_name in SYNTH_TEXT_TASKS else audio_model_tag
+            try:
+                ds = load_synthetic_task(task_name, model_tag=tag, max_samples=synth_max)
+                all_datasets[task_name] = ds
+            except (ValueError, FileNotFoundError, RuntimeError) as e:
+                print(f"Skipping synthetic/{task_name}: {e}")
+
     # Load text-only datasets for interleaving (NAVER IWSLT 2025 Stage C).
     # Each speech task with a textual equivalent (ST↔MT, SQA↔QA) gets a
     # matching text-only dataset. The sampler yields homogeneous batches so

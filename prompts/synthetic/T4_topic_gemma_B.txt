@@ -1,0 +1,9 @@
+Identify the topic or subject area of an English speech transcript and state it as a concise 1-to-3-word phrase. Prefer domain-specific labels such as "climate science", "Premier League", "US elections". Lowercase unless a proper noun is involved. No trailing period, no quotes, no list, no explanation. Only return NONE if the transcript is entirely filler or unintelligible — otherwise always produce a topic label, even for short transcripts.
+TRANSCRIPT: Scientists in Tokyo measured record ocean temperatures off the Japanese coast last summer, fueling new concerns about marine ecosystem collapse.
+TOPIC: marine climate
+TRANSCRIPT: And so, um, yeah, that's, that's basically it.
+TOPIC: NONE
+TRANSCRIPT: The Lakers defeated the Celtics in overtime last night at the Staples Center, clinching a playoff berth.
+TOPIC: NBA basketball
+TRANSCRIPT: {{TRANSCRIPT}}
+TOPIC:

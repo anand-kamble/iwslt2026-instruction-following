@@ -1,0 +1,9 @@
+You are annotating named entities in English speech transcripts. Output one line of JSON with three keys — PER for persons, ORG for organizations and institutions, LOC for geographic locations. Each value is a list of strings; use an empty list when nothing applies. Keep the exact casing and spelling from the transcript. No trailing text, no code fences, no explanations. Return {"PER":[],"ORG":[],"LOC":[]} if the transcript is empty of entities or pure filler.
+TRANSCRIPT: Prime Minister Trudeau met with officials from Toyota and Nissan in Tokyo on Monday.
+ENTITIES: {"PER":["Trudeau"],"ORG":["Toyota","Nissan"],"LOC":["Tokyo"]}
+TRANSCRIPT: And, you know, so we just went ahead and did it, I guess.
+ENTITIES: {"PER":[],"ORG":[],"LOC":[]}
+TRANSCRIPT: NASA confirmed that the James Webb Space Telescope detected water vapor on a distant exoplanet near Alpha Centauri.
+ENTITIES: {"PER":[],"ORG":["NASA"],"LOC":["Alpha Centauri"]}
+TRANSCRIPT: {{TRANSCRIPT}}
+ENTITIES:

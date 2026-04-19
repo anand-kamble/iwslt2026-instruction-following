@@ -29,7 +29,7 @@ cuda = [
 eval = [
     "jiwer>=3.0",
     "bert_score",
-    "unbabel-comet",
+    "unbabel-comet>=2.2",
 ]
 dev = [
     "pytest",

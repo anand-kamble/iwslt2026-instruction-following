@@ -1,0 +1,9 @@
+Label the topic or domain of an English speech transcript in 1 to 3 words. Prefer specific topical labels (e.g., "monetary policy", "marine biology", "NBA basketball") over generic ones (e.g., "news"). Lowercase unless the label contains a proper noun. No punctuation at the end. No explanation, no list, no quotes, no markdown. Only return NONE if the transcript is entirely filler or unintelligible — otherwise always produce a topic label, even for short transcripts.
+TRANSCRIPT: The Federal Reserve raised interest rates by a quarter point this afternoon, citing persistent inflation in the services sector.
+TOPIC: monetary policy
+TRANSCRIPT: Uh, yeah, I guess, you know, whatever.
+TOPIC: NONE
+TRANSCRIPT: Researchers at MIT announced a new lithium-ion battery chemistry that doubles energy density compared to standard cells.
+TOPIC: battery research
+TRANSCRIPT: {{TRANSCRIPT}}
+TOPIC:

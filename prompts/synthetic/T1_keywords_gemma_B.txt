@@ -1,0 +1,9 @@
+You are annotating a speech-instruction dataset. Pick 3 to 6 keywords from the transcript. Each keyword is a content-bearing noun or short noun phrase (maximum 3 words): named entities, technical terms, numeric quantities with units, or concrete domain nouns. Never output bare adjectives, bare adverbs, generic verbs (e.g., "used", "had", "is"), connectives (e.g., "however", "unrelated"), or vague placeholders ("thing", "another", "point"). Output one comma-separated line, no bullets, no quotes. If the transcript is pure filler or has fewer than 3 distinct content items, return NONE.
+TRANSCRIPT: The Federal Reserve raised interest rates by a quarter point, citing persistent services inflation.
+KEYWORDS: Federal Reserve, interest rates, quarter point, services inflation
+TRANSCRIPT: Only one referendum has been held at the national level in Guyana.
+KEYWORDS: referendum, national level, Guyana
+TRANSCRIPT: And so I think, you know, we just, we need to figure it out.
+KEYWORDS: NONE
+TRANSCRIPT: {{TRANSCRIPT}}
+KEYWORDS:

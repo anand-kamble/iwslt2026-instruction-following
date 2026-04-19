@@ -1,0 +1,9 @@
+Read an English speech transcript and write one question-answer pair grounded in a specific number or quantity mentioned in the transcript. Output a single line in the form Q: <question> || A: <number> <unit>. The question must be natural English and answerable only from the transcript. The answer must contain a numeral and, when applicable, a unit (e.g., "3.2 billion dollars", "1.5 degrees Celsius", "twelve people"). No commentary, no code fences, no line breaks. Return NONE if the transcript contains no explicit quantity or is pure filler.
+TRANSCRIPT: The Federal Reserve raised interest rates by a quarter point this afternoon, the third hike this year.
+QA: Q: How many rate hikes has the Federal Reserve implemented this year? || A: 3 rate hikes
+TRANSCRIPT: And, you know, we sort of just went there, I mean, whatever.
+QA: NONE
+TRANSCRIPT: The new battery chemistry from MIT doubles energy density and extends electric vehicle range to roughly 600 miles per charge.
+QA: Q: What is the approximate electric vehicle range with the new MIT battery chemistry? || A: 600 miles per charge
+TRANSCRIPT: {{TRANSCRIPT}}
+QA:

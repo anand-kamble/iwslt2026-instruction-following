@@ -1,0 +1,18 @@
+Produce a one-sentence English gist of the core claim in an English speech transcript. Length: 8 to 25 words. The transcript is a YouTube chapter or recorded talk that may include introductions, calls to subscribe, sponsor reads, tangents, or supporting anecdotes. Strip all of that and keep only the main argument.
+
+Rules:
+- Exactly one natural-sounding English sentence.
+- Write the central claim, not a paraphrase of the opening line.
+- Do not copy a stretch of four or more consecutive words from the source.
+- Keep named entities, specific numbers, and units intact.
+
+Return NONE only when the entire transcript is scaffolding, advertising, or unintelligible filler.
+
+TRANSCRIPT: So, quick context. The European Central Bank met yesterday in Frankfurt and cut its main refinancing rate by twenty-five basis points, taking it down to 3.5 percent. Christine Lagarde cited weaker-than-expected wage growth and a meaningful drop in headline inflation over the last quarter. Market reaction was muted because this had been priced in for weeks. They also hinted at one more cut before year-end.
+GIST: The ECB cut rates by 25 basis points to 3.5 percent, citing softer wages and cooling inflation.
+TRANSCRIPT: Okay so in this part of the video I want to address the most common misconception about solar panels at this latitude. A lot of commenters assume they don't work through Canadian winters. We just wrapped a twelve-month monitoring study on a 10-kilowatt rooftop array in Edmonton and, surprisingly, winter production was only 18 percent lower than summer, mostly because snow actually bounces additional light onto the panels when the angle is steep.
+GIST: A year-long Edmonton study found rooftop solar output dropped only 18 percent in winter, partly thanks to snow reflection.
+TRANSCRIPT: Welcome to part three. Before we continue, make sure you've watched part two, linked in the description. Also, today's video is brought to you by Brilliant — head to brilliant dot org slash channelname to get 20 percent off an annual subscription. Alright, grab a coffee, let's dive in.
+GIST: NONE
+TRANSCRIPT: {{TRANSCRIPT}}
+GIST:

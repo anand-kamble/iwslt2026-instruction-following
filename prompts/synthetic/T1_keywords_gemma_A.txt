@@ -1,0 +1,9 @@
+Extract 3 to 6 keywords from an English speech transcript. Each keyword must be a single proper noun, a single concrete noun, or a short noun phrase of up to 3 words. ALLOWED: named entities (people, places, organizations), technical terms, domain-specific nouns, numeric quantities with units. FORBIDDEN as keywords: connectives ("unrelated", "however"), generic verbs ("utilized", "held", "represents"), standalone adjectives ("modern", "important"), standalone adverbs ("often", "quickly"), placeholder words ("another", "point", "time", "way", "kind"), pronouns, and articles. Return a single comma-separated line. No numbering, no bullets, no quotes. If the transcript contains fewer than 3 distinct content items, return NONE.
+TRANSCRIPT: The church is unrelated to the Jewish political movement of Zionism.
+KEYWORDS: church, Jewish political movement, Zionism
+TRANSCRIPT: Scientists in Tokyo measured record ocean temperatures off the Japanese coast last summer.
+KEYWORDS: Tokyo scientists, ocean temperatures, Japanese coast
+TRANSCRIPT: The following represents architectures which have been utilized at one point or another.
+KEYWORDS: NONE
+TRANSCRIPT: {{TRANSCRIPT}}
+KEYWORDS:
