@@ -6,10 +6,10 @@ Supports three modes:
 - Precomputed: load pre-extracted speech features from .pt files
 """
 
-import torch
+import sys
 from dataclasses import dataclass
 
-from src.model.speech_llm import SPEECH_PLACEHOLDER
+import torch
 
 
 @dataclass
@@ -76,7 +76,6 @@ class SpeechTextCollator:
             else:
                 # Raw audio mode — supports both dict format and pre-extracted arrays
                 # Resample to 16kHz if needed (SeamlessM4T expects 16kHz)
-                import sys
                 import torchaudio
                 audios = []
                 kept_features = []
@@ -125,18 +124,16 @@ class SpeechTextCollator:
                         )
 
                 if not audios:
-                    # Every audio sample failed to load. This happens when a
-                    # text-only task (mt_*, qa_*) carries stale `audio_path`
-                    # strings inherited from its source schema. Fall back to
-                    # treating the batch as text-only so training — and DDP
-                    # collectives — stay in sync across ranks.
-                    print(
-                        "[collator] all audio samples failed to load; "
-                        f"falling back to text-only (tasks={set(tasks) if tasks else set()})",
-                        file=sys.stderr,
-                        flush=True,
+                    # Drop per-sample failures, but never silently convert a
+                    # speech batch to text-only. If everything failed, surface
+                    # it as a hard error so data issues are explicit.
+                    raise RuntimeError(
+                        "[collator] all audio samples in batch failed to load; "
+                        f"tasks={sorted(set(t for t in tasks if t))} "
+                        f"batch_size={len(features)}. "
+                        "Per-sample drops are supported, but full-batch audio "
+                        "failure is not recoverable."
                     )
-                    has_audio = False
                 else:
                     if len(kept_features) != len(features):
                         features = kept_features
