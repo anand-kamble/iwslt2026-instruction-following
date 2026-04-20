@@ -240,7 +240,7 @@ def main():
                         help="Evaluate the base LLM without LoRA adapters")
     parser.add_argument("--tasks", nargs="+", default=["mt", "sqa"],
                         choices=["mt", "sqa"], help="Which tasks to evaluate")
-    parser.add_argument("--mt_langs", nargs="+", default=["de", "zh"],
+    parser.add_argument("--mt_langs", nargs="+", default=["de", "zh", "it"],
                         help="Target languages for MT evaluation")
     parser.add_argument("--sqa_lang", type=str, default="en",
                         help="Language for SQA evaluation")
