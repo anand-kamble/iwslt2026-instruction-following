@@ -8,11 +8,17 @@ Following NAVER IWSLT 2025 (arxiv 2506.01808) Stage B evaluation:
 
 No audio is used — reference English transcripts are provided as text input.
 
-Usage:
+Run all commands from this repository root (iwslt2026-instruction-following),
+not from a parent folder that may contain another src/ tree with an older script.
+
+Usage (LoRA checkpoint):
     python src/evaluate_lora.py --config configs/stage2_text_lora.yaml \
         --checkpoint ./outputs/stage2_text_lora
     python src/evaluate_lora.py --config configs/stage2_text_lora.yaml \
         --checkpoint ./outputs/stage2_text_lora --tasks mt --mt_langs de zh
+
+Usage (base pretrained LLM only, no lora_adapters/):
+    python src/evaluate_lora.py --config configs/stage2_text_lora.yaml --base
 """
 
 import argparse
@@ -20,7 +26,7 @@ import os
 
 import torch
 
-from src.model.build_model import load_llm_from_checkpoint, get_device
+from src.model.build_model import load_llm_from_checkpoint, load_llm_with_lora, get_device
 from src.config import load_config
 from src.data.utils import TASK_PROMPTS, UNANSWERABLE, format_text_only_messages
 
@@ -45,6 +51,26 @@ def load_lora_checkpoint(checkpoint_dir: str, config: dict = None, device: str =
     )
     llm.eval()
 
+    return llm, tokenizer
+
+
+def load_base_llm(config: dict, device: str = None):
+    """Load the pretrained LLM from the hub with no LoRA (for baseline eval)."""
+    if device is None:
+        device = get_device()
+
+    training_config = config.get("training", {})
+    llm_config = config.get("model", {})
+    model_name = llm_config.get("llm", "Qwen/Qwen3-4B-Instruct-2507")
+
+    llm, tokenizer = load_llm_with_lora(
+        model_name=model_name,
+        load_in_4bit=training_config.get("load_in_4bit", False),
+        load_in_8bit=training_config.get("load_in_8bit", False),
+        no_lora=True,
+        device=device,
+    )
+    llm.eval()
     return llm, tokenizer
 
 
@@ -197,8 +223,17 @@ def main():
         description="Evaluate Stage 2 LoRA checkpoint (text-only MT + SQA, following NAVER Stage B)"
     )
     parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--checkpoint", type=str, required=True,
-                        help="Stage 2 checkpoint dir (must contain lora_adapters/)")
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Stage 2 checkpoint dir (must contain lora_adapters/). Not used with --base.",
+    )
+    parser.add_argument(
+        "--base",
+        action="store_true",
+        help="Evaluate the pretrained LLM from config (model.llm) with no LoRA weights.",
+    )
     parser.add_argument("--tasks", nargs="+", default=["mt", "sqa"],
                         choices=["mt", "sqa"], help="Which tasks to evaluate")
     parser.add_argument("--mt_langs", nargs="+", default=["de", "zh"],
@@ -209,12 +244,21 @@ def main():
                         help="Max samples per eval set (for quick testing)")
     args = parser.parse_args()
 
+    if not args.base and not args.checkpoint:
+        parser.error("Provide --checkpoint for a LoRA run, or pass --base for pretrained LLM only.")
+    if args.base and args.checkpoint:
+        print("Note: --base is set; ignoring --checkpoint and loading hub base weights only.\n")
+
     config = load_config(args.config)
 
     print("=" * 60)
     print("Stage 2 LoRA Evaluation (text-only, NAVER Stage B)")
     print("=" * 60)
-    print(f"Checkpoint: {args.checkpoint}")
+    if args.base:
+        print("Mode: base pretrained LLM (no LoRA)")
+        print(f"Model: {config.get('model', {}).get('llm', 'Qwen/Qwen3-4B-Instruct-2507')}")
+    else:
+        print(f"Checkpoint: {args.checkpoint}")
     print(f"Tasks: {args.tasks}")
     if "mt" in args.tasks:
         print(f"MT languages: {args.mt_langs}")
@@ -224,7 +268,10 @@ def main():
 
     # Load model
     print("Loading model...")
-    llm, tokenizer = load_lora_checkpoint(args.checkpoint, config)
+    if args.base:
+        llm, tokenizer = load_base_llm(config)
+    else:
+        llm, tokenizer = load_lora_checkpoint(args.checkpoint, config)
 
     all_scores = {}
 
