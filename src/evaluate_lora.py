@@ -20,7 +20,7 @@ import os
 
 import torch
 
-from src.model.build_model import load_llm_from_checkpoint, get_device
+from src.model.build_model import load_llm_from_checkpoint, load_llm_with_lora, get_device
 from src.config import load_config
 from src.data.utils import TASK_PROMPTS, UNANSWERABLE, format_text_only_messages
 
@@ -43,6 +43,43 @@ def load_lora_checkpoint(checkpoint_dir: str, config: dict = None, device: str =
         is_trainable=False,
         device=device,
     )
+    llm.eval()
+
+    return llm, tokenizer
+
+
+def load_base_llm(config: dict = None, device: str = None):
+    """Load the base LLM without LoRA adapters.
+
+    Bypasses device_map='auto' (whose accelerate dispatch hooks can route
+    tensors through CPU and break flash-attn) by loading directly onto one GPU.
+    """
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    if device is None:
+        device = get_device()
+
+    config = config or {}
+    llm_config = config.get("model", {})
+    model_name = llm_config.get("llm", "Qwen/Qwen3-4B-Instruct-2507")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+
+    model_kwargs = {"trust_remote_code": True}
+    if device == "cuda" and torch.cuda.is_bf16_supported():
+        model_kwargs["torch_dtype"] = torch.bfloat16
+    else:
+        model_kwargs["torch_dtype"] = torch.float16
+
+    if device == "cuda":
+        try:
+            import flash_attn  # noqa: F401
+            model_kwargs["attn_implementation"] = "flash_attention_2"
+        except ImportError:
+            pass
+
+    llm = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+    llm = llm.to(device)
     llm.eval()
 
     return llm, tokenizer
@@ -197,8 +234,10 @@ def main():
         description="Evaluate Stage 2 LoRA checkpoint (text-only MT + SQA, following NAVER Stage B)"
     )
     parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--checkpoint", type=str, required=True,
-                        help="Stage 2 checkpoint dir (must contain lora_adapters/)")
+    parser.add_argument("--checkpoint", type=str, default=None,
+                        help="Stage 2 checkpoint dir (must contain lora_adapters/). Omit with --base_only.")
+    parser.add_argument("--base_only", action="store_true",
+                        help="Evaluate the base LLM without LoRA adapters")
     parser.add_argument("--tasks", nargs="+", default=["mt", "sqa"],
                         choices=["mt", "sqa"], help="Which tasks to evaluate")
     parser.add_argument("--mt_langs", nargs="+", default=["de", "zh"],
@@ -209,12 +248,15 @@ def main():
                         help="Max samples per eval set (for quick testing)")
     args = parser.parse_args()
 
+    if not args.base_only and args.checkpoint is None:
+        parser.error("--checkpoint is required unless --base_only is set")
+
     config = load_config(args.config)
 
     print("=" * 60)
     print("Stage 2 LoRA Evaluation (text-only, NAVER Stage B)")
     print("=" * 60)
-    print(f"Checkpoint: {args.checkpoint}")
+    print(f"Checkpoint: {'<base model, no LoRA>' if args.base_only else args.checkpoint}")
     print(f"Tasks: {args.tasks}")
     if "mt" in args.tasks:
         print(f"MT languages: {args.mt_langs}")
@@ -224,7 +266,10 @@ def main():
 
     # Load model
     print("Loading model...")
-    llm, tokenizer = load_lora_checkpoint(args.checkpoint, config)
+    if args.base_only:
+        llm, tokenizer = load_base_llm(config)
+    else:
+        llm, tokenizer = load_lora_checkpoint(args.checkpoint, config)
 
     all_scores = {}
 
