@@ -386,7 +386,7 @@ def load_all_task_datasets(config: dict) -> dict[str, Dataset]:
                 # the text-only path.
                 stale_audio_cols = [
                     c for c in ds.column_names
-                    if c in ("audio", "audio_path", "audio_array", "precomputed_features")
+                    if c in ("audio", "audio_path", "audio_array")
                 ]
                 if stale_audio_cols:
                     ds = ds.remove_columns(stale_audio_cols)

@@ -174,12 +174,6 @@ def main():
     parser.add_argument(
         "--stage2_checkpoint", type=str, default=None, help="Load LoRA weights from Stage 2"
     )
-    parser.add_argument(
-        "--precomputed_dir",
-        type=str,
-        default=None,
-        help="Dir with pre-extracted speech features (from extract_features.py)",
-    )
     # torchrun compatibility (PyTorch 2.x passes --local-rank).
     parser.add_argument("--local-rank", "--local_rank", type=int, default=-1)
     args = parser.parse_args()
@@ -461,52 +455,6 @@ def main():
         from src.data.multitask import MultiTaskDataset, TemperatureSampler, load_all_task_datasets
 
         task_datasets = load_all_task_datasets(config)
-
-        # Wrap with precomputed features if available.
-        # Only wrap tasks that actually have .pt files (speech tasks).
-        # Text-only tasks (mt_*, qa_*) have no audio to precompute.
-        if args.precomputed_dir:
-            from src.data.precomputed import PrecomputedWrapper
-
-            wrapped = 0
-            for task_name in task_datasets:
-                task_dir = os.path.join(args.precomputed_dir, task_name)
-                feature_files = []
-                if os.path.isdir(task_dir):
-                    feature_files = [
-                        f for f in os.listdir(task_dir) if f.endswith(".pt") and f[:-3].isdigit()
-                    ]
-                has_features = bool(feature_files)
-                if has_features:
-                    expected = len(task_datasets[task_name])
-                    found = len(feature_files)
-                    # A small gap is legitimate: extract_features.py skips
-                    # samples with corrupt audio. PrecomputedWrapper filters
-                    # the dataset down to only indices with feature files.
-                    # Still refuse if the gap is unreasonably large (>5%),
-                    # which usually indicates a mismatched config.
-                    missing = expected - found
-                    if missing > 0:
-                        pct = 100.0 * missing / max(expected, 1)
-                        if pct > 5.0:
-                            raise RuntimeError(
-                                f"Incomplete precomputed features for {task_name}: "
-                                "found "
-                                f"{found}, expected {expected} "
-                                f"({pct:.1f}% missing) in {task_dir}"
-                            )
-                        print(
-                            f"  {task_name}: {missing} samples missing features "
-                            f"({pct:.2f}%) — will be dropped from training"
-                        )
-                    task_datasets[task_name] = PrecomputedWrapper(
-                        task_datasets[task_name], task_dir
-                    )
-                    wrapped += 1
-            if wrapped:
-                print(f"Using precomputed features for {wrapped}/{len(task_datasets)} tasks")
-            else:
-                print(f"WARNING: No precomputed features found in {args.precomputed_dir}")
 
         train_dataset = MultiTaskDataset(task_datasets)
         sampling_config = config.get("sampling", {})
