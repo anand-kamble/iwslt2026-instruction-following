@@ -1,0 +1,96 @@
+# Stage 4: text-only GRPO on Qwen3-4B + existing LoRA adapter.
+#
+# Constrained-track-compatible: trains the LoRA adapter that is shared between
+# the speech and text paths, so sharpening text-side instruction-following
+# transfers back to speech inference via the shared adapter.
+#
+# Expects:
+#   - LoRA checkpoint directory passed via STAGE2_CHECKPOINT env var at launch.
+#   - JSONL data produced by `scripts/prepare_grpo_data.py`.
+#
+# Launch with:
+#   STAGE2_CHECKPOINT=outputs/stage2_text_lora_v2 \
+#   sbatch scripts/slurm_stage4_grpo.sh
+
+rlhf_type: grpo
+
+# Base model (constrained-track allowed)
+model: Qwen/Qwen3-4B-Instruct-2507
+torch_dtype: bfloat16
+attn_impl: flash_attn
+
+# Dataset (prepare with scripts/prepare_grpo_data.py)
+dataset: data/grpo/train.jsonl
+split_dataset_ratio: 0.01
+load_from_cache_file: true
+
+# Reward configuration — task-routed rewards + built-in hygiene.
+# Order matches --reward_weights. prometheus_judge requires a co-deployed
+# Prometheus-7B server (see scripts/slurm_stage4_grpo.sh). If the server is
+# unreachable, the judge returns None and the other rewards still drive.
+external_plugins: grpo/rewards.py
+reward_funcs:
+  - mt_comet
+  - t1_jaccard
+  - t5_numeric
+  - prometheus_judge
+  - language_match
+  - repetition
+  - soft_overlong
+reward_weights:
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 0.3
+  - 0.2
+  - 0.2
+
+# LoRA continuation — load Stage 2 / Stage 3 adapter and keep training it
+train_type: lora
+tuner_backend: peft
+target_modules: all-linear
+lora_rank: 16
+lora_alpha: 16
+
+# GRPO knobs (see Aniket's AudioMCQ reference SLURM for the template)
+num_generations: 8
+per_device_train_batch_size: 8     # completions per step; 8 / num_generations=1 prompt/step
+gradient_accumulation_steps: 4
+max_length: 2048
+max_completion_length: 512
+
+temperature: 0.9
+top_p: 0.95
+top_k: 20
+repetition_penalty: 1.05
+
+beta: 0.001                        # KL to reference (null_ref_context for LoRA)
+epsilon: 0.2
+loss_type: dapo
+scale_rewards: group
+overlong_filter: true
+mask_truncated_completions: true
+truncation_strategy: delete
+soft_cache_length: 256
+
+# Rollout — vLLM works natively with Qwen3-4B (no register.py needed)
+use_vllm: true
+vllm_mode: colocate
+vllm_gpu_memory_utilization: 0.6
+sleep_level: 1
+
+# Optimizer
+learning_rate: 5.0e-7
+warmup_ratio: 0.03
+lr_scheduler_type: cosine
+max_steps: 500
+
+# Logging / checkpointing
+logging_steps: 1
+save_steps: 50
+save_total_limit: 4
+log_completions: true
+report_to: tensorboard
+dataloader_num_workers: 4
+output_dir: outputs/stage4_grpo

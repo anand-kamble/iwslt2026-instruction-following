@@ -1,0 +1,42 @@
+# Stage 4 data mix for GRPO.
+#
+# 50% Stage 3 text-side tasks (MT + QA) and 50% synthetic T1..T10 (minus T2).
+# Tone tasks (T8/T9/T10) weighted 2x within the synthetic half.
+#
+# Used by: scripts/prepare_grpo_data.py --mix configs/swift/stage4_mix.yaml ...
+
+total_samples: 20000          # total rows written to the GRPO JSONL
+stage3_fraction: 0.5          # 50% Stage 3, 50% synthetic
+shuffle_seed: 42
+
+# -- Stage 3 half ---------------------------------------------------------------
+# Renormalized from the multitask_short sampling config, keeping only the
+# text-side tasks our current pipeline can load. The original speech-side
+# tasks (ASR, S2TSUM, ACHAP) are dropped because we are running text-only.
+stage3_ratios:
+  mt_de:  0.182
+  mt_it:  0.182
+  mt_zh:  0.182
+  qa_en:  0.182
+  qa_de:  0.091
+  qa_it:  0.091
+  qa_zh:  0.091
+
+# -- Synthetic half -------------------------------------------------------------
+# Base weight 1x; tone tasks 2x per user instruction. Dropped: T2_ner.
+# Normalized probabilities:
+#   non-tone (6 tasks × 1): 6 / 12 = 0.50   -> 0.083 each
+#   tone    (3 tasks × 2): 6 / 12 = 0.50   -> 0.167 each
+synth_ratios:
+  T1_keywords:   0.083
+  T3_gist_en:    0.083
+  T4_topic:      0.083
+  T5_numeric_qa: 0.083
+  T6_gist_de:    0.083
+  T7_gist_zh:    0.083
+  T8_tone_en:    0.167
+  T9_tone_de:    0.167
+  T10_tone_zh:   0.167
+
+# Root of synthetic JSONL trees (each task is a subdir with gemma-4-*B/part-*.jsonl)
+synth_root: data/synthetic
