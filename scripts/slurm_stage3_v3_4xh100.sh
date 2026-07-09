@@ -1,16 +1,16 @@
 #!/bin/bash
-#SBATCH -p secondary
+#SBATCH -p spiderverse-overflow
 #SBATCH --gres=gpu:H100:4
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
 #SBATCH -t 04:00:00
 #SBATCH -J stage3_v3_4xh100
-#SBATCH --exclude=ccc0424
+#SBATCH --exclude=bully-maguire
 #SBATCH -o logs/%x-%j.out
 #SBATCH -e logs/%x-%j.err
 
 # =============================================================================
-# Stage 3 v3 on 4x H100 (secondary partition, 4h max).
+# Stage 3 v3 on 4x H100 (spiderverse-overflow partition, 4h max).
 #   Uses Stage 2 v3 LoRA adapter (rank 32, alpha 64, dropout 0.05, all-linear, lr 2e-4).
 #
 # Output: outputs/stage3_multimodal_v3_4xh100/   (fully isolated)
@@ -26,7 +26,7 @@
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 export PYTHONUNBUFFERED=1
-export HF_HOME=/scratch/atathe2/hf_cache
+export HF_HOME=/scratch/pizza_time/hf_cache
 
 # ── Config ───────────────────────────────────────────────────────────────────
 STAGE1_DIR="${STAGE1_DIR:-outputs/stage1_alignment}"
@@ -65,7 +65,7 @@ fi
 
 # ── Sanity checks ────────────────────────────────────────────────────────────
 echo "============================================================"
-echo "Stage 3 v3: 4xH100 on secondary, DDP torchrun, on-the-fly features"
+echo "Stage 3 v3: 4xH100 on spiderverse-overflow, DDP torchrun, on-the-fly features"
 echo "============================================================"
 echo "Job ID:     ${SLURM_JOB_ID:-local}"
 echo "Node:       $(hostname)"

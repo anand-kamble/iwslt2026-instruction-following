@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH -A atathe2-ic
-#SBATCH -p IllinoisComputes-GPU
+#SBATCH -A spidey-pointing-research
+#SBATCH -p web-slinger-gpu
 #SBATCH --gres=gpu:H200:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
@@ -29,7 +29,7 @@
 #   sbatch --export=ALL,SKIP_UPLOAD=1 scripts/slurm_train.sh
 #
 # Interactive GPU shell (for debugging):
-#   srun -A atathe2-ic -p IllinoisComputes-GPU --gres=gpu:H200:1 \
+#   srun -A spidey-pointing-research -p web-slinger-gpu --gres=gpu:H200:1 \
 #        --cpus-per-task=8 --mem=64G -t 01:30:00 --pty bash
 #
 # Outputs:
@@ -41,7 +41,7 @@
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"   # ensure we're in project root
 export PYTHONUNBUFFERED=1
-export HF_HOME=/scratch/atathe2/hf_cache
+export HF_HOME=/scratch/pizza_time/hf_cache
 
 # ── Config ───────────────────────────────────────────────────────────────────
 HF_REPO="anand-kamble/iwslt2026-stage3"

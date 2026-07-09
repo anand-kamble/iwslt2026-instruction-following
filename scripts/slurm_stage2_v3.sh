@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH -A atathe2-ic
-#SBATCH -p IllinoisComputes-GPU
+#SBATCH -A spidey-pointing-research
+#SBATCH -p web-slinger-gpu
 #SBATCH --gres=gpu:H200:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
@@ -19,7 +19,7 @@
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 export PYTHONUNBUFFERED=1
-export HF_HOME=/scratch/atathe2/hf_cache
+export HF_HOME=/scratch/pizza_time/hf_cache
 
 # ── Wandb ────────────────────────────────────────────────────────────────────
 export WANDB_PROJECT="${WANDB_PROJECT:-iwslt2026}"

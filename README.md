@@ -94,3 +94,8 @@ src/
 scripts/              SLURM job scripts, data download, smoke tests
 tests/                Smoke tests
 ```
+
+## Acknowledgments
+
+Some training and experimentation for this project used compute resources from
+the [UIUC Campus Cluster](https://campuscluster.illinois.edu/).

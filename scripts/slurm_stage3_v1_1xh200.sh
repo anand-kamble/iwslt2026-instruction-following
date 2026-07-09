@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH -A atathe2-ic
-#SBATCH -p IllinoisComputes-GPU
+#SBATCH -A spidey-pointing-research
+#SBATCH -p web-slinger-gpu
 #SBATCH --gres=gpu:H200:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
@@ -10,7 +10,7 @@
 #SBATCH -e logs/%x-%j.err
 
 # =============================================================================
-# Stage 3 v1 on 1x H200 (IllinoisComputes-GPU, 12h max).
+# Stage 3 v1 on 1x H200 (web-slinger-gpu, 12h max).
 #   Uses Stage 2 v1 LoRA adapter (rank 8, alpha 16, specific targets, lr 3e-4).
 #
 # Output: outputs/stage3_multimodal_v1_1xh200/   (fully isolated)
@@ -26,7 +26,7 @@
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 export PYTHONUNBUFFERED=1
-export HF_HOME=/scratch/atathe2/hf_cache
+export HF_HOME=/scratch/pizza_time/hf_cache
 
 # ── Config ───────────────────────────────────────────────────────────────────
 STAGE1_DIR="${STAGE1_DIR:-outputs/stage1_alignment}"
@@ -58,7 +58,7 @@ fi
 
 # ── Sanity checks ────────────────────────────────────────────────────────────
 echo "============================================================"
-echo "Stage 3 v1: 1xH200 on IllinoisComputes-GPU, on-the-fly features"
+echo "Stage 3 v1: 1xH200 on web-slinger-gpu, on-the-fly features"
 echo "============================================================"
 echo "Job ID:     ${SLURM_JOB_ID:-local}"
 echo "Node:       $(hostname)"

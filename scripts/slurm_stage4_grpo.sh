@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH -A atathe2-ic
-#SBATCH -p IllinoisComputes-GPU
+#SBATCH -A spidey-pointing-research
+#SBATCH -p web-slinger-gpu
 #SBATCH --gres=gpu:H100:2
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=240G
@@ -41,12 +41,12 @@ source .venv/bin/activate
 mkdir -p logs data/grpo outputs
 
 # ── Caches off NFS ───────────────────────────────────────────────────────────
-export HF_HOME=/scratch/atathe2/hf_cache
-export HF_DATASETS_CACHE=/scratch/atathe2/hf_cache/datasets
-export TRANSFORMERS_CACHE=/scratch/atathe2/hf_cache/transformers
-export TORCH_HOME=/scratch/atathe2/torch
-export TRITON_CACHE_DIR=/scratch/atathe2/triton_cache
-export VLLM_CACHE_DIR=/scratch/atathe2/vllm_cache
+export HF_HOME=/scratch/pizza_time/hf_cache
+export HF_DATASETS_CACHE=/scratch/pizza_time/hf_cache/datasets
+export TRANSFORMERS_CACHE=/scratch/pizza_time/hf_cache/transformers
+export TORCH_HOME=/scratch/pizza_time/torch
+export TRITON_CACHE_DIR=/scratch/pizza_time/triton_cache
+export VLLM_CACHE_DIR=/scratch/pizza_time/vllm_cache
 mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE" "$TRANSFORMERS_CACHE" \
          "$TORCH_HOME" "$TRITON_CACHE_DIR" "$VLLM_CACHE_DIR"
 
