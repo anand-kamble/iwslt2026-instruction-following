@@ -1,6 +1,7 @@
 # IWSLT 2026 — Instruction Following (Constrained)
 
 Fine-tuning Seamless M4T v2 + Qwen3-4B-Instruct for the [IWSLT 2026 Instruction Following](https://iwslt.org/2026/instruction-following) shared task.
+ArxiV - https://arxiv.org/pdf/2607.05623 
 
 ## Architecture
 
